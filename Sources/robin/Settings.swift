@@ -2,6 +2,7 @@ import Foundation
 
 struct AppSettings: Sendable {
     var transcriptionBackend: TranscriptionBackend
+    var localParakeetMode: LocalParakeetTranscriptionMode
     var apiKey: String
     var endpoint: String
     var model: String
@@ -21,6 +22,7 @@ struct AppSettings: Sendable {
 
     static let defaultConfig = AppSettings(
         transcriptionBackend: .cohere,
+        localParakeetMode: .standard,
         apiKey: "",
         endpoint: "https://api.cohere.com/v2/audio/transcriptions",
         model: "cohere-transcribe-03-2026",
@@ -42,9 +44,26 @@ enum TranscriptionBackend: String, Sendable {
     case localParakeet
 }
 
+enum LocalParakeetTranscriptionMode: String, CaseIterable, Identifiable, Sendable {
+    case standard
+    case streaming
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .standard:
+            "Standard"
+        case .streaming:
+            "Streaming"
+        }
+    }
+}
+
 final class SettingsManager {
     private enum Keys {
         static let transcriptionBackend = "transcriptionBackend"
+        static let localParakeetMode = "localParakeetMode"
         static let apiKey = "apiKey"
         static let model = "model"
         static let language = "language"
@@ -90,8 +109,10 @@ final class SettingsManager {
         let defaults = AppSettings.defaultConfig
         let configuredDeliveryMode = userDefaults.string(forKey: Keys.deliveryMode) ?? defaults.deliveryMode.rawValue
         let configuredBackend = userDefaults.string(forKey: Keys.transcriptionBackend) ?? defaults.transcriptionBackend.rawValue
+        let configuredParakeetMode = userDefaults.string(forKey: Keys.localParakeetMode) ?? defaults.localParakeetMode.rawValue
         let settings = AppSettings(
             transcriptionBackend: TranscriptionBackend(rawValue: configuredBackend) ?? defaults.transcriptionBackend,
+            localParakeetMode: LocalParakeetTranscriptionMode(rawValue: configuredParakeetMode) ?? defaults.localParakeetMode,
             apiKey: userDefaults.string(forKey: Keys.apiKey) ?? defaults.apiKey,
             endpoint: defaults.endpoint,
             model: userDefaults.string(forKey: Keys.model) ?? defaults.model,
@@ -110,6 +131,7 @@ final class SettingsManager {
     func resetToDefaults() throws -> AppSettings {
         try ensureApplicationDirectories()
         userDefaults.removeObject(forKey: Keys.transcriptionBackend)
+        userDefaults.removeObject(forKey: Keys.localParakeetMode)
         userDefaults.removeObject(forKey: Keys.apiKey)
         userDefaults.removeObject(forKey: Keys.model)
         userDefaults.removeObject(forKey: Keys.language)
@@ -124,6 +146,7 @@ final class SettingsManager {
     func save(_ settings: AppSettings) throws {
         try ensureApplicationDirectories()
         userDefaults.set(settings.transcriptionBackend.rawValue, forKey: Keys.transcriptionBackend)
+        userDefaults.set(settings.localParakeetMode.rawValue, forKey: Keys.localParakeetMode)
         userDefaults.set(settings.apiKey, forKey: Keys.apiKey)
         userDefaults.set(settings.model, forKey: Keys.model)
         userDefaults.set(settings.language, forKey: Keys.language)

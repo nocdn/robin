@@ -43,3 +43,49 @@ enum LocalParakeetModelStore {
         }
     }
 }
+
+enum LocalParakeetStreamingModelStore {
+    static let modelName = "Parakeet Realtime EOU"
+    static let chunkSize: StreamingChunkSize = .ms320
+
+    static var modelsRootDirectory: URL {
+        FileManager.default
+            .homeDirectoryForCurrentUser
+            .appendingPathComponent("Library", isDirectory: true)
+            .appendingPathComponent("Application Support", isDirectory: true)
+            .appendingPathComponent("Robin", isDirectory: true)
+            .appendingPathComponent("Models", isDirectory: true)
+            .appendingPathComponent("parakeet-realtime-eou-120m-coreml", isDirectory: true)
+    }
+
+    static var modelDirectory: URL {
+        modelsRootDirectory
+            .appendingPathComponent(Repo.parakeetEou320.folderName, isDirectory: true)
+    }
+
+    static var isDownloaded: Bool {
+        ModelNames.ParakeetEOU.requiredModels.allSatisfy { modelName in
+            FileManager.default.fileExists(
+                atPath: modelDirectory.appendingPathComponent(modelName).path
+            )
+        }
+    }
+
+    static func download(progress: @escaping @Sendable (Double) -> Void) async throws {
+        progress(0)
+        try await DownloadUtils.downloadRepo(
+            .parakeetEou320,
+            to: modelsRootDirectory,
+            progressHandler: { snapshot in
+                progress(snapshot.fractionCompleted)
+            }
+        )
+        progress(1)
+    }
+
+    static func remove() throws {
+        if FileManager.default.fileExists(atPath: modelsRootDirectory.path) {
+            try FileManager.default.removeItem(at: modelsRootDirectory)
+        }
+    }
+}

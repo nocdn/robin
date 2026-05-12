@@ -90,13 +90,6 @@ private enum TranscriptionMode: String, CaseIterable, Identifiable {
     }
 }
 
-private enum ParakeetTranscriptionMode: String, CaseIterable, Identifiable {
-    case standard = "Standard"
-    case streaming = "Streaming"
-
-    var id: String { rawValue }
-}
-
 private struct SettingsView: View {
     private enum FocusedField: Hashable {
         case historyDirectory
@@ -107,7 +100,7 @@ private struct SettingsView: View {
     private let onLayoutChange: () -> Void
 
     @State private var mode: TranscriptionMode = .cohere
-    @State private var parakeetMode: ParakeetTranscriptionMode = .standard
+    @State private var parakeetMode: LocalParakeetTranscriptionMode = .standard
     @State private var hotkey: String
     @State private var isListeningForHotkey = false
     @State private var hotkeyError: String?
@@ -135,6 +128,15 @@ private struct SettingsView: View {
 
         let settings = (try? settingsManager.loadOrCreate()) ?? AppSettings.defaultConfig
         _mode = State(initialValue: TranscriptionMode(backend: settings.transcriptionBackend))
+        _parakeetMode = State(initialValue: settings.localParakeetMode)
+        _isModelDownloaded = State(initialValue: {
+            switch settings.localParakeetMode {
+            case .standard:
+                LocalParakeetModelStore.isDownloaded
+            case .streaming:
+                LocalParakeetStreamingModelStore.isDownloaded
+            }
+        }())
         _hotkey = State(initialValue: settings.hotkey)
         _apiKey = State(initialValue: settings.apiKey)
         _model = State(initialValue: settings.model)
@@ -186,11 +188,14 @@ private struct SettingsView: View {
 
                     if mode == .parakeet {
                         Picker("", selection: $parakeetMode) {
-                            ForEach(ParakeetTranscriptionMode.allCases) { mode in
-                                Text(mode.rawValue).tag(mode)
+                            ForEach(LocalParakeetTranscriptionMode.allCases) { mode in
+                                Text(mode.displayName).tag(mode)
                             }
                         }
                         .labelsHidden()
+                        .onChange(of: parakeetMode) { _, _ in
+                            saveParakeetMode()
+                        }
                     }
                 }
             }
@@ -334,7 +339,25 @@ private struct SettingsView: View {
         if isModelDownloaded {
             return "Downloaded"
         }
-        return "Download Model"
+        return "Download \(selectedLocalModelName)"
+    }
+
+    private var selectedLocalModelName: String {
+        switch parakeetMode {
+        case .standard:
+            LocalParakeetModelStore.modelName
+        case .streaming:
+            LocalParakeetStreamingModelStore.modelName
+        }
+    }
+
+    private var selectedLocalModelDownloaded: Bool {
+        switch parakeetMode {
+        case .standard:
+            LocalParakeetModelStore.isDownloaded
+        case .streaming:
+            LocalParakeetStreamingModelStore.isDownloaded
+        }
     }
 
     private func startHotKeyCapture() {
@@ -482,7 +505,20 @@ private struct SettingsView: View {
             _ = try settingsManager.update { settings in
                 settings.transcriptionBackend = mode.backend
             }
-            isModelDownloaded = LocalParakeetModelStore.isDownloaded
+            isModelDownloaded = selectedLocalModelDownloaded
+            modelDownloadError = nil
+        } catch {
+            presentSaveError(error)
+        }
+    }
+
+    private func saveParakeetMode() {
+        do {
+            _ = try settingsManager.update { settings in
+                settings.localParakeetMode = parakeetMode
+            }
+            isModelDownloaded = selectedLocalModelDownloaded
+            modelDownloadProgress = 0
             modelDownloadError = nil
         } catch {
             presentSaveError(error)
@@ -558,20 +594,30 @@ private struct SettingsView: View {
 
         Task {
             do {
-                try await LocalParakeetModelStore.download { progress in
-                    Task { @MainActor in
-                        modelDownloadProgress = max(modelDownloadProgress, progress)
+                let modeToDownload = parakeetMode
+                switch modeToDownload {
+                case .standard:
+                    try await LocalParakeetModelStore.download { progress in
+                        Task { @MainActor in
+                            modelDownloadProgress = max(modelDownloadProgress, progress)
+                        }
+                    }
+                case .streaming:
+                    try await LocalParakeetStreamingModelStore.download { progress in
+                        Task { @MainActor in
+                            modelDownloadProgress = max(modelDownloadProgress, progress)
+                        }
                     }
                 }
                 await MainActor.run {
-                    isModelDownloaded = true
+                    isModelDownloaded = selectedLocalModelDownloaded
                     isDownloadingModel = false
                     modelDownloadProgress = 1
                 }
             } catch {
                 Logger.shared.error("Local model download failed: \(error.localizedDescription)")
                 await MainActor.run {
-                    isModelDownloaded = LocalParakeetModelStore.isDownloaded
+                    isModelDownloaded = selectedLocalModelDownloaded
                     isDownloadingModel = false
                     modelDownloadError = error.localizedDescription
                 }
@@ -581,11 +627,19 @@ private struct SettingsView: View {
 
     private func removeLocalModel() {
         do {
-            try LocalParakeetModelStore.remove()
-            Task {
-                await LocalParakeetTranscriptionClient.shared.unload()
+            switch parakeetMode {
+            case .standard:
+                try LocalParakeetModelStore.remove()
+                Task {
+                    await LocalParakeetTranscriptionClient.shared.unload()
+                }
+            case .streaming:
+                try LocalParakeetStreamingModelStore.remove()
+                Task {
+                    await LocalParakeetStreamingTranscriptionClient.shared.unload()
+                }
             }
-            isModelDownloaded = LocalParakeetModelStore.isDownloaded
+            isModelDownloaded = selectedLocalModelDownloaded
             modelDownloadProgress = 0
             modelDownloadError = nil
         } catch {

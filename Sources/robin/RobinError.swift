@@ -8,6 +8,10 @@ enum RobinError: LocalizedError {
     case microphonePermissionDenied
     case audioRecordingFailed
     case localModelNotDownloaded(URL)
+    case localStreamingModelNotDownloaded(URL)
+    case localStreamingRequiresEnglish
+    case liveAudioCaptureFailed(String)
+    case emptyTranscript
     case textInsertionFailed(String)
     case invalidResponse
     case apiError(status: Int, body: String)
@@ -28,6 +32,14 @@ enum RobinError: LocalizedError {
             "Could not start audio recording."
         case .localModelNotDownloaded(let url):
             "Parakeet model is not downloaded. Download it in Robin Settings. Expected path: \(url.path)"
+        case .localStreamingModelNotDownloaded(let url):
+            "Parakeet streaming model is not downloaded. Select Parakeet Streaming in Robin Settings and download it. Expected path: \(url.path)"
+        case .localStreamingRequiresEnglish:
+            "Parakeet streaming currently supports English only. Switch language to English or use Standard local mode."
+        case .liveAudioCaptureFailed(let reason):
+            "Could not start live audio capture: \(reason)"
+        case .emptyTranscript:
+            "No transcript was produced."
         case .textInsertionFailed(let reason):
             "Could not insert transcription text: \(reason)"
         case .invalidResponse:

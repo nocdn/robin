@@ -18,6 +18,11 @@ struct TextDelivery {
         }
     }
 
+    func insertLiveChunk(_ text: String) throws {
+        Logger.shared.info("Delivering live text chunk characters=\(text.count)")
+        try insert(text)
+    }
+
     private func insert(_ text: String) throws {
         guard !text.isEmpty else { return }
 
