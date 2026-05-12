@@ -7,7 +7,12 @@ struct TextDelivery {
         Logger.shared.info("Delivering text mode=\(mode.rawValue) characters=\(text.count)")
         switch mode {
         case .insert:
-            try insert(text)
+            do {
+                try insert(text)
+            } catch {
+                Logger.shared.error("Text insertion failed; copying transcript to clipboard instead: \(error.localizedDescription)")
+                copyToClipboard(text)
+            }
         case .clipboard:
             copyToClipboard(text)
         }
@@ -16,16 +21,11 @@ struct TextDelivery {
     private func insert(_ text: String) throws {
         guard !text.isEmpty else { return }
 
-        if try insertWithAccessibility(text) {
-            Logger.shared.info("Inserted text with Accessibility selected-text replacement")
-            return
-        }
-
-        Logger.shared.info("Accessibility insertion did not succeed; falling back to Unicode keyboard events")
-        try insertWithUnicodeKeyboardEvents(text)
+        try insertWithAccessibility(text)
+        Logger.shared.info("Inserted text with Accessibility selected-text replacement")
     }
 
-    private func insertWithAccessibility(_ text: String) throws -> Bool {
+    private func insertWithAccessibility(_ text: String) throws {
         let systemWideElement = AXUIElementCreateSystemWide()
         var focusedValue: CFTypeRef?
         let focusedError = AXUIElementCopyAttributeValue(
@@ -35,8 +35,8 @@ struct TextDelivery {
         )
 
         guard focusedError == .success, let focusedValue else {
-            Logger.shared.info("AX focused element unavailable: \(focusedError.rawValue)")
-            return false
+            Logger.shared.error("AX focused element unavailable: \(focusedError.rawValue)")
+            throw RobinError.textInsertionFailed("No focused text field was available.")
         }
 
         let focusedElement = focusedValue as! AXUIElement
@@ -47,39 +47,9 @@ struct TextDelivery {
         )
 
         if setError != .success {
-            Logger.shared.info("AX selected text set failed: \(setError.rawValue)")
+            Logger.shared.error("AX selected text set failed: \(setError.rawValue)")
+            throw RobinError.textInsertionFailed("Focused text field rejected insertion.")
         }
-
-        return setError == .success
-    }
-
-    private func insertWithUnicodeKeyboardEvents(_ text: String) throws {
-        let canPostBeforeRequest = CGPreflightPostEventAccess()
-        Logger.shared.info("Post Event preflight before request: \(canPostBeforeRequest)")
-        if !canPostBeforeRequest {
-            let granted = CGRequestPostEventAccess()
-            Logger.shared.info("Post Event request returned: \(granted)")
-        }
-        let canPostAfterRequest = CGPreflightPostEventAccess()
-        Logger.shared.info("Post Event preflight after request: \(canPostAfterRequest)")
-
-        guard let source = CGEventSource(stateID: .hidSystemState) else {
-            throw RobinError.textInsertionFailed("Could not create a keyboard event source.")
-        }
-
-        for chunk in text.utf16.chunked(maxLength: 16) {
-            var mutableChunk = Array(chunk)
-            guard let keyDown = CGEvent(keyboardEventSource: source, virtualKey: 0, keyDown: true),
-                  let keyUp = CGEvent(keyboardEventSource: source, virtualKey: 0, keyDown: false) else {
-                throw RobinError.textInsertionFailed("Could not create keyboard events.")
-            }
-
-            keyDown.keyboardSetUnicodeString(stringLength: mutableChunk.count, unicodeString: &mutableChunk)
-            keyDown.post(tap: .cghidEventTap)
-            keyUp.post(tap: .cghidEventTap)
-            Thread.sleep(forTimeInterval: 0.01)
-        }
-        Logger.shared.info("Inserted text with Unicode keyboard events")
     }
 
     private func copyToClipboard(_ text: String) {
