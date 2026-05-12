@@ -90,6 +90,13 @@ private enum TranscriptionMode: String, CaseIterable, Identifiable {
     }
 }
 
+private enum ParakeetTranscriptionMode: String, CaseIterable, Identifiable {
+    case standard = "Standard"
+    case streaming = "Streaming"
+
+    var id: String { rawValue }
+}
+
 private struct SettingsView: View {
     private enum FocusedField: Hashable {
         case historyDirectory
@@ -100,6 +107,7 @@ private struct SettingsView: View {
     private let onLayoutChange: () -> Void
 
     @State private var mode: TranscriptionMode = .cohere
+    @State private var parakeetMode: ParakeetTranscriptionMode = .standard
     @State private var hotkey: String
     @State private var isListeningForHotkey = false
     @State private var hotkeyError: String?
@@ -165,14 +173,25 @@ private struct SettingsView: View {
                         .foregroundColor(.secondary)
                 }
 
-                Picker("", selection: $mode) {
-                    ForEach(TranscriptionMode.allCases) { mode in
-                        Text(mode.rawValue).tag(mode)
+                HStack(spacing: 8) {
+                    Picker("", selection: $mode) {
+                        ForEach(TranscriptionMode.allCases) { mode in
+                            Text(mode.rawValue).tag(mode)
+                        }
                     }
-                }
-                .labelsHidden()
-                .onChange(of: mode) { _, _ in
-                    saveTranscriptionBackend()
+                    .labelsHidden()
+                    .onChange(of: mode) { _, _ in
+                        saveTranscriptionBackend()
+                    }
+
+                    if mode == .parakeet {
+                        Picker("", selection: $parakeetMode) {
+                            ForEach(ParakeetTranscriptionMode.allCases) { mode in
+                                Text(mode.rawValue).tag(mode)
+                            }
+                        }
+                        .labelsHidden()
+                    }
                 }
             }
 
