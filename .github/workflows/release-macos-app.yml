@@ -15,6 +15,9 @@ jobs:
   release:
     name: Build and release Robin.app
     runs-on: macos-26
+    env:
+      APP_VERSION: 0.1.${{ github.run_number }}
+      APP_BUILD: ${{ github.run_number }}
 
     steps:
       - name: Check out repository
@@ -27,9 +30,6 @@ jobs:
           swift --version
 
       - name: Build app bundle
-        env:
-          APP_VERSION: 0.1.${{ github.run_number }}
-          APP_BUILD: ${{ github.run_number }}
         run: ./scripts/package_app.sh
 
       - name: Package app bundle
@@ -43,8 +43,8 @@ jobs:
           cat > dist/release-notes.md <<EOF
           Automated Robin macOS build from ${GITHUB_SHA}.
 
-          Version: 0.1.${GITHUB_RUN_NUMBER}
-          Build: ${GITHUB_RUN_NUMBER}
+          Version: ${APP_VERSION}
+          Build: ${APP_BUILD}
 
           Download Robin.app.zip, extract it, then move Robin.app to /Applications.
 
@@ -57,13 +57,16 @@ jobs:
           TAG: build-${{ github.run_number }}
         run: |
           if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release edit "$TAG" \
+              --title "Robin Version ${APP_VERSION}" \
+              --notes-file dist/release-notes.md \
+              --prerelease=false
             gh release upload "$TAG" dist/Robin.app.zip dist/Robin.app.zip.sha256 --clobber
           else
             gh release create "$TAG" \
               dist/Robin.app.zip \
               dist/Robin.app.zip.sha256 \
               --target "$GITHUB_SHA" \
-              --title "Robin build ${GITHUB_RUN_NUMBER}" \
-              --notes-file dist/release-notes.md \
-              --prerelease
+              --title "Robin Version ${APP_VERSION}" \
+              --notes-file dist/release-notes.md
           fi
