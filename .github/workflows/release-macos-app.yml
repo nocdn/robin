@@ -1,0 +1,69 @@
+name: Release macOS app
+
+on:
+  push:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-macos-app-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  release:
+    name: Build and release Robin.app
+    runs-on: macos-26
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+
+      - name: Show toolchain
+        run: |
+          sw_vers
+          xcodebuild -version
+          swift --version
+
+      - name: Build app bundle
+        env:
+          APP_VERSION: 0.1.${{ github.run_number }}
+          APP_BUILD: ${{ github.run_number }}
+        run: ./scripts/package_app.sh
+
+      - name: Package app bundle
+        run: |
+          mkdir -p dist
+          COPYFILE_DISABLE=1 ditto -c -k --norsrc --keepParent .build/Robin.app dist/Robin.app.zip
+          shasum -a 256 dist/Robin.app.zip > dist/Robin.app.zip.sha256
+
+      - name: Write release notes
+        run: |
+          cat > dist/release-notes.md <<EOF
+          Automated Robin macOS build from ${GITHUB_SHA}.
+
+          Version: 0.1.${GITHUB_RUN_NUMBER}
+          Build: ${GITHUB_RUN_NUMBER}
+
+          Download Robin.app.zip, extract it, then move Robin.app to /Applications.
+
+          This build is ad-hoc signed by CI, not Developer ID signed or notarized. macOS may require right-clicking Robin.app and choosing Open the first time.
+          EOF
+
+      - name: Create or update GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: build-${{ github.run_number }}
+        run: |
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" dist/Robin.app.zip dist/Robin.app.zip.sha256 --clobber
+          else
+            gh release create "$TAG" \
+              dist/Robin.app.zip \
+              dist/Robin.app.zip.sha256 \
+              --target "$GITHUB_SHA" \
+              --title "Robin build ${GITHUB_RUN_NUMBER}" \
+              --notes-file dist/release-notes.md \
+              --prerelease
+          fi
