@@ -7,6 +7,8 @@ struct HotKey {
 }
 
 enum HotKeyParser {
+    static let defaultValue = "control+]"
+
     static func parse(_ value: String) throws -> HotKey {
         let pieces = value
             .split(separator: "+")
@@ -42,6 +44,10 @@ enum HotKeyParser {
         return HotKey(keyCode: keyCode, modifiers: modifiers)
     }
 
+    static func keyName(for keyCode: UInt16) -> String? {
+        keyNamesByCode[CGKeyCode(keyCode)]
+    }
+
     private static let keyCodes: [String: CGKeyCode] = [
         "a": 0, "s": 1, "d": 2, "f": 3, "h": 4, "g": 5, "z": 6, "x": 7,
         "c": 8, "v": 9, "b": 11, "q": 12, "w": 13, "e": 14, "r": 15,
@@ -56,5 +62,20 @@ enum HotKeyParser {
         "home": 115, "pageup": 116, "delete": 117, "forwarddelete": 117,
         "end": 119, "pagedown": 121, "left": 123, "right": 124, "down": 125,
         "up": 126
+    ]
+
+    private static let keyNamesByCode: [CGKeyCode: String] = [
+        0: "a", 1: "s", 2: "d", 3: "f", 4: "h", 5: "g", 6: "z", 7: "x",
+        8: "c", 9: "v", 11: "b", 12: "q", 13: "w", 14: "e", 15: "r",
+        16: "y", 17: "t", 18: "1", 19: "2", 20: "3", 21: "4", 22: "6",
+        23: "5", 24: "=", 25: "9", 26: "7", 27: "-", 28: "8", 29: "0",
+        30: "]", 31: "o", 32: "u", 33: "[", 34: "i", 35: "p", 36: "return",
+        37: "l", 38: "j", 39: "'", 40: "k", 41: ";", 42: "\\", 43: ",",
+        44: "/", 45: "n", 46: "m", 47: ".", 48: "tab", 49: "space",
+        50: "`", 53: "escape", 96: "f5", 97: "f6", 98: "f7", 99: "f3",
+        100: "f8", 101: "f9", 103: "f11", 109: "f10", 111: "f12",
+        115: "home", 116: "pageup", 117: "delete", 118: "f4", 119: "end",
+        120: "f2", 121: "pagedown", 122: "f1", 123: "left", 124: "right",
+        125: "down", 126: "up"
     ]
 }

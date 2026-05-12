@@ -1,7 +1,7 @@
 import Foundation
 
 enum RobinError: LocalizedError {
-    case missingAPIKey(String)
+    case missingAPIKey
     case invalidEndpoint(String)
     case invalidHotKey(String)
     case hotKeyPermissionDenied
@@ -13,12 +13,12 @@ enum RobinError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .missingAPIKey(let path):
-            "Missing Cohere API key. Add api_key to \(path)."
+        case .missingAPIKey:
+            "Missing Cohere API key. Add it in Robin Settings."
         case .invalidEndpoint(let endpoint):
             "Invalid Cohere endpoint: \(endpoint)"
         case .invalidHotKey(let hotKey):
-            "Invalid hotkey in config.toml: \(hotKey)"
+            "Invalid hotkey: \(hotKey)"
         case .hotKeyPermissionDenied:
             "Could not create the global hotkey monitor. Enable Robin in System Settings > Privacy & Security > Accessibility and Input Monitoring."
         case .microphonePermissionDenied:

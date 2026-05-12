@@ -1,16 +1,11 @@
 # Robin
 
-`robin` is a macOS menu-bar push-to-talk transcription app. It appears as Robin in macOS permission prompts and notifications. It has no settings UI; edit:
-
-```text
-~/Library/Application Support/Robin/config.toml
-```
+`robin` is a macOS menu-bar push-to-talk transcription app. It appears as Robin in macOS permission prompts and notifications. Use the menu bar Settings item to set the hotkey, Cohere API key, model slug, history folder, insert mode, and language.
 
 Default hotkey:
 
-```toml
-hotkey = "control+]"
-delivery_mode = "insert"
+```text
+control+]
 ```
 
 Transcripts are saved as text files in:
@@ -31,4 +26,4 @@ Build and launch:
 ./scripts/build_and_run.sh
 ```
 
-The app records WAV audio while the hotkey is held, sends it to Cohere, saves the transcript, and inserts the latest transcript into the focused text field. Set `delivery_mode = "clipboard"` to copy the finished transcription instead.
+The app records WAV audio while the hotkey is held, sends it to Cohere, saves the transcript, and inserts the latest transcript into the focused text field. Change Insert mode in Settings to copy the finished transcription to the clipboard instead.

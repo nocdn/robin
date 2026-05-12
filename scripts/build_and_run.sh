@@ -56,4 +56,3 @@ codesign --force --deep --sign - "$APP_DIR" >/dev/null
 open "$APP_DIR"
 
 echo "Launched $APP_DIR"
-echo "Config: $HOME/Library/Application Support/Robin/config.toml"

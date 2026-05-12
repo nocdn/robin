@@ -4,6 +4,12 @@ import Foundation
 @MainActor
 final class AppCoordinator {
     private let settingsManager = SettingsManager()
+    private lazy var settingsWindow = SettingsWindowController(
+        settingsManager: settingsManager,
+        onHotKeyChange: { [weak self] in
+            self?.reloadHotKey()
+        }
+    )
     private let notifier = Notifier()
     private let recorder = AudioRecorder()
     private let textDelivery = TextDelivery()
@@ -17,7 +23,7 @@ final class AppCoordinator {
             try settingsManager.ensureApplicationDirectories()
             Logger.shared.info("Application support directory ready")
             settings = try settingsManager.loadOrCreate()
-            Logger.shared.info("Loaded settings from \(settingsManager.configURL.path)")
+            Logger.shared.info("Loaded settings")
             await notifier.requestAuthorization()
             try await recorder.requestPermission()
             try configureHotKey()
@@ -31,8 +37,8 @@ final class AppCoordinator {
     func openSettings() {
         do {
             _ = try settingsManager.loadOrCreate()
-            Logger.shared.info("Opening settings: \(settingsManager.configURL.path)")
-            NSWorkspace.shared.open(settingsManager.configURL)
+            Logger.shared.info("Opening settings window")
+            settingsWindow.show()
         } catch {
             Logger.shared.error("Opening settings failed: \(error.localizedDescription)")
             notifier.error(error)
@@ -65,7 +71,7 @@ final class AppCoordinator {
             settings = try settingsManager.resetToDefaults()
             hotKeyMonitor?.stop()
             try configureHotKey()
-            NSWorkspace.shared.open(settingsManager.configURL)
+            settingsWindow.show()
         } catch {
             Logger.shared.error("Reset settings failed: \(error.localizedDescription)")
             notifier.error(error)
@@ -94,6 +100,16 @@ final class AppCoordinator {
         Logger.shared.info("Hotkey monitor started")
     }
 
+    private func reloadHotKey() {
+        do {
+            hotKeyMonitor?.stop()
+            try configureHotKey()
+        } catch {
+            Logger.shared.error("Reload hotkey failed: \(error.localizedDescription)")
+            notifier.error(error)
+        }
+    }
+
     private func startRecording() {
         Logger.shared.info("Hotkey pressed")
         guard !isTranscribing else {
@@ -104,10 +120,10 @@ final class AppCoordinator {
         do {
             let currentSettings = try settingsManager.loadOrCreate()
             settings = currentSettings
-            Logger.shared.info("Settings reloaded before recording; delivery_mode=\(currentSettings.deliveryMode.rawValue)")
+            Logger.shared.info("Settings reloaded before recording; insertMode=\(currentSettings.deliveryMode.rawValue)")
 
             guard !currentSettings.apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-                throw RobinError.missingAPIKey(settingsManager.configURL.path)
+                throw RobinError.missingAPIKey
             }
 
             try recorder.start(directory: currentSettings.resolvedRecordingDirectory)
