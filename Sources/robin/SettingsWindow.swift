@@ -110,6 +110,7 @@ private struct SettingsView: View {
     @State private var isModelDownloaded = LocalParakeetModelStore.isDownloaded
     @State private var isDownloadingModel = false
     @State private var modelDownloadProgress = 0.0
+    @State private var modelDownloadSizeBytes: Int64?
     @State private var modelDownloadError: String?
     @State private var historyDirectory: String
     @State private var savedHistoryDirectory: String
@@ -234,9 +235,16 @@ private struct SettingsView: View {
                         .disabled(isDownloadingModel || isModelDownloaded)
 
                         if isDownloadingModel {
-                            ProgressView(value: modelDownloadProgress, total: 1.0)
-                                .progressViewStyle(.circular)
-                                .controlSize(.small)
+                            HStack(spacing: 6) {
+                                DownloadProgressRing(progress: modelDownloadProgress)
+
+                                Text(modelDownloadStatusText)
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                                    .monospacedDigit()
+                            }
+                            .accessibilityElement(children: .ignore)
+                            .accessibilityLabel(modelDownloadAccessibilityText)
                         }
 
                         if isModelDownloaded {
@@ -358,6 +366,42 @@ private struct SettingsView: View {
         case .streaming:
             LocalParakeetStreamingModelStore.isDownloaded
         }
+    }
+
+    private var selectedLocalModelFallbackDownloadSizeBytes: Int64 {
+        switch parakeetMode {
+        case .standard:
+            LocalParakeetModelStore.fallbackDownloadSizeBytes
+        case .streaming:
+            LocalParakeetStreamingModelStore.fallbackDownloadSizeBytes
+        }
+    }
+
+    private var modelDownloadStatusText: String {
+        "\(modelDownloadPercent)% · \(formattedModelDownloadSize)"
+    }
+
+    private var modelDownloadAccessibilityText: String {
+        "Downloading \(selectedLocalModelName), \(modelDownloadPercent) percent of \(formattedModelDownloadSize)"
+    }
+
+    private var modelDownloadPercent: Int {
+        Int((clampedDownloadProgress * 100).rounded())
+    }
+
+    private var formattedModelDownloadSize: String {
+        let bytes = modelDownloadSizeBytes ?? selectedLocalModelFallbackDownloadSizeBytes
+        let megabytes = Double(bytes) / 1_000_000
+
+        if megabytes >= 1_000 {
+            return String(format: "%.1f GB", megabytes / 1_000)
+        }
+
+        return "\(Int(megabytes.rounded())) MB"
+    }
+
+    private var clampedDownloadProgress: Double {
+        min(max(modelDownloadProgress, 0), 1)
     }
 
     private func startHotKeyCapture() {
@@ -519,6 +563,7 @@ private struct SettingsView: View {
             }
             isModelDownloaded = selectedLocalModelDownloaded
             modelDownloadProgress = 0
+            modelDownloadSizeBytes = nil
             modelDownloadError = nil
         } catch {
             presentSaveError(error)
@@ -590,11 +635,16 @@ private struct SettingsView: View {
         guard !isDownloadingModel, !isModelDownloaded else { return }
         isDownloadingModel = true
         modelDownloadProgress = 0
+        modelDownloadSizeBytes = selectedLocalModelFallbackDownloadSizeBytes
         modelDownloadError = nil
 
         Task {
+            let modeToDownload = parakeetMode
+            Task {
+                await updateDownloadSize(for: modeToDownload)
+            }
+
             do {
-                let modeToDownload = parakeetMode
                 switch modeToDownload {
                 case .standard:
                     try await LocalParakeetModelStore.download { progress in
@@ -646,5 +696,48 @@ private struct SettingsView: View {
             Logger.shared.error("Local model removal failed: \(error.localizedDescription)")
             modelDownloadError = error.localizedDescription
         }
+    }
+
+    private func updateDownloadSize(for modeToDownload: LocalParakeetTranscriptionMode) async {
+        let sizeBytes: Int64?
+        switch modeToDownload {
+        case .standard:
+            sizeBytes = try? await LocalParakeetModelStore.downloadSizeBytes()
+        case .streaming:
+            sizeBytes = try? await LocalParakeetStreamingModelStore.downloadSizeBytes()
+        }
+
+        guard let sizeBytes else { return }
+
+        await MainActor.run {
+            guard parakeetMode == modeToDownload else { return }
+            modelDownloadSizeBytes = sizeBytes
+        }
+    }
+}
+
+private struct DownloadProgressRing: View {
+    let progress: Double
+
+    private let lineWidth = 1.5
+    private let size = 14.0
+
+    var body: some View {
+        ZStack {
+            Circle()
+                .stroke(
+                    Color.secondary.opacity(0.25),
+                    style: StrokeStyle(lineWidth: lineWidth, lineCap: .round)
+                )
+
+            Circle()
+                .trim(from: 0, to: min(max(progress, 0), 1))
+                .stroke(
+                    Color.accentColor,
+                    style: StrokeStyle(lineWidth: lineWidth, lineCap: .round)
+                )
+                .rotationEffect(.degrees(-90))
+        }
+        .frame(width: size, height: size)
     }
 }
