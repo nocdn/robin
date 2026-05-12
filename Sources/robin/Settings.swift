@@ -1,6 +1,7 @@
 import Foundation
 
 struct AppSettings: Sendable {
+    var transcriptionBackend: TranscriptionBackend
     var apiKey: String
     var endpoint: String
     var model: String
@@ -19,6 +20,7 @@ struct AppSettings: Sendable {
     }
 
     static let defaultConfig = AppSettings(
+        transcriptionBackend: .cohere,
         apiKey: "",
         endpoint: "https://api.cohere.com/v2/audio/transcriptions",
         model: "cohere-transcribe-03-2026",
@@ -35,8 +37,14 @@ enum TranscriptDeliveryMode: String, Sendable {
     case clipboard
 }
 
+enum TranscriptionBackend: String, Sendable {
+    case cohere
+    case localParakeet
+}
+
 final class SettingsManager {
     private enum Keys {
+        static let transcriptionBackend = "transcriptionBackend"
         static let apiKey = "apiKey"
         static let model = "model"
         static let language = "language"
@@ -81,7 +89,9 @@ final class SettingsManager {
 
         let defaults = AppSettings.defaultConfig
         let configuredDeliveryMode = userDefaults.string(forKey: Keys.deliveryMode) ?? defaults.deliveryMode.rawValue
+        let configuredBackend = userDefaults.string(forKey: Keys.transcriptionBackend) ?? defaults.transcriptionBackend.rawValue
         let settings = AppSettings(
+            transcriptionBackend: TranscriptionBackend(rawValue: configuredBackend) ?? defaults.transcriptionBackend,
             apiKey: userDefaults.string(forKey: Keys.apiKey) ?? defaults.apiKey,
             endpoint: defaults.endpoint,
             model: userDefaults.string(forKey: Keys.model) ?? defaults.model,
@@ -99,6 +109,7 @@ final class SettingsManager {
 
     func resetToDefaults() throws -> AppSettings {
         try ensureApplicationDirectories()
+        userDefaults.removeObject(forKey: Keys.transcriptionBackend)
         userDefaults.removeObject(forKey: Keys.apiKey)
         userDefaults.removeObject(forKey: Keys.model)
         userDefaults.removeObject(forKey: Keys.language)
@@ -112,6 +123,7 @@ final class SettingsManager {
 
     func save(_ settings: AppSettings) throws {
         try ensureApplicationDirectories()
+        userDefaults.set(settings.transcriptionBackend.rawValue, forKey: Keys.transcriptionBackend)
         userDefaults.set(settings.apiKey, forKey: Keys.apiKey)
         userDefaults.set(settings.model, forKey: Keys.model)
         userDefaults.set(settings.language, forKey: Keys.language)

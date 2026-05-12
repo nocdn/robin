@@ -70,6 +70,24 @@ private enum TranscriptionMode: String, CaseIterable, Identifiable {
     case parakeet = "Parakeet"
 
     var id: String { rawValue }
+
+    init(backend: TranscriptionBackend) {
+        switch backend {
+        case .cohere:
+            self = .cohere
+        case .localParakeet:
+            self = .parakeet
+        }
+    }
+
+    var backend: TranscriptionBackend {
+        switch self {
+        case .cohere:
+            .cohere
+        case .parakeet:
+            .localParakeet
+        }
+    }
 }
 
 private struct SettingsView: View {
@@ -88,6 +106,10 @@ private struct SettingsView: View {
     @State private var eventMonitor: Any?
     @State private var apiKey: String
     @State private var model: String
+    @State private var isModelDownloaded = LocalParakeetModelStore.isDownloaded
+    @State private var isDownloadingModel = false
+    @State private var modelDownloadProgress = 0.0
+    @State private var modelDownloadError: String?
     @State private var historyDirectory: String
     @State private var savedHistoryDirectory: String
     @State private var deliveryMode: TranscriptDeliveryMode
@@ -104,6 +126,7 @@ private struct SettingsView: View {
         self.onLayoutChange = onLayoutChange
 
         let settings = (try? settingsManager.loadOrCreate()) ?? AppSettings.defaultConfig
+        _mode = State(initialValue: TranscriptionMode(backend: settings.transcriptionBackend))
         _hotkey = State(initialValue: settings.hotkey)
         _apiKey = State(initialValue: settings.apiKey)
         _model = State(initialValue: settings.model)
@@ -148,6 +171,9 @@ private struct SettingsView: View {
                     }
                 }
                 .labelsHidden()
+                .onChange(of: mode) { _, _ in
+                    saveTranscriptionBackend()
+                }
             }
 
             if mode == .cohere {
@@ -175,64 +201,88 @@ private struct SettingsView: View {
                             saveModel()
                         }
                 }
-
+            } else {
                 VStack(alignment: .leading, spacing: 6) {
-                    HStack(spacing: 0) {
-                        Text("History folder ")
-                        Text("Enter to save")
-                            .foregroundColor(.secondary)
-                    }
-
                     HStack(spacing: 8) {
-                        TextField("", text: $historyDirectory)
-                            .frame(maxWidth: .infinity)
-                            .focused($focusedField, equals: .historyDirectory)
-                            .onSubmit {
-                                saveHistoryDirectory()
+                        Button(localModelButtonTitle) {
+                            downloadLocalModel()
+                        }
+                        .disabled(isDownloadingModel || isModelDownloaded)
+
+                        if isDownloadingModel {
+                            ProgressView(value: modelDownloadProgress, total: 1.0)
+                                .progressViewStyle(.circular)
+                                .controlSize(.small)
+                        }
+
+                        if isModelDownloaded {
+                            Button("Remove") {
+                                removeLocalModel()
                             }
-
-                        Button("Open") {
-                            openHistoryDirectory()
+                            .disabled(isDownloadingModel)
                         }
-                        .fixedSize()
-
-                        Button("Reset") {
-                            historyDirectory = AppSettings.defaultConfig.historyDirectory
-                            saveHistoryDirectory()
-                        }
-                        .fixedSize()
-                        .disabled(savedHistoryDirectory == AppSettings.defaultConfig.historyDirectory)
                     }
-                    .frame(maxWidth: .infinity)
+
+                    if let modelDownloadError {
+                        Text(modelDownloadError)
+                            .foregroundColor(.orange)
+                    }
                 }
+            }
 
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Insert mode")
-
-                    Picker("", selection: $deliveryMode) {
-                        Text("Insert").tag(TranscriptDeliveryMode.insert)
-                        Text("Clipboard").tag(TranscriptDeliveryMode.clipboard)
-                    }
-                    .labelsHidden()
-                    .onChange(of: deliveryMode) { _, _ in
-                        saveDeliveryMode()
-                    }
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 0) {
+                    Text("History folder ")
+                    Text("Enter to save")
+                        .foregroundColor(.secondary)
                 }
 
                 HStack(spacing: 8) {
-                    Text("Language:")
-
-                    TextField("", text: $language)
-                        .frame(width: 80)
-                        .onChange(of: language) { _, _ in
-                            saveLanguage()
+                    TextField("", text: $historyDirectory)
+                        .frame(maxWidth: .infinity)
+                        .focused($focusedField, equals: .historyDirectory)
+                        .onSubmit {
+                            saveHistoryDirectory()
                         }
 
-                    Text("ISO 639-1")
-                        .foregroundColor(.secondary)
+                    Button("Open") {
+                        openHistoryDirectory()
+                    }
+                    .fixedSize()
+
+                    Button("Reset") {
+                        historyDirectory = AppSettings.defaultConfig.historyDirectory
+                        saveHistoryDirectory()
+                    }
+                    .fixedSize()
+                    .disabled(savedHistoryDirectory == AppSettings.defaultConfig.historyDirectory)
                 }
-            } else {
-                Text("Local model not implemented yet")
+                .frame(maxWidth: .infinity)
+            }
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Insert mode")
+
+                Picker("", selection: $deliveryMode) {
+                    Text("Insert").tag(TranscriptDeliveryMode.insert)
+                    Text("Clipboard").tag(TranscriptDeliveryMode.clipboard)
+                }
+                .labelsHidden()
+                .onChange(of: deliveryMode) { _, _ in
+                    saveDeliveryMode()
+                }
+            }
+
+            HStack(spacing: 8) {
+                Text("Language:")
+
+                TextField("", text: $language)
+                    .frame(width: 80)
+                    .onChange(of: language) { _, _ in
+                        saveLanguage()
+                    }
+
+                Text("ISO 639-1")
                     .foregroundColor(.secondary)
             }
         }
@@ -256,6 +306,16 @@ private struct SettingsView: View {
 
     private var isDefaultHotKey: Bool {
         hotkey == HotKeyParser.defaultValue
+    }
+
+    private var localModelButtonTitle: String {
+        if isDownloadingModel {
+            return "Downloading"
+        }
+        if isModelDownloaded {
+            return "Downloaded"
+        }
+        return "Download Model"
     }
 
     private func startHotKeyCapture() {
@@ -398,6 +458,18 @@ private struct SettingsView: View {
         }
     }
 
+    private func saveTranscriptionBackend() {
+        do {
+            _ = try settingsManager.update { settings in
+                settings.transcriptionBackend = mode.backend
+            }
+            isModelDownloaded = LocalParakeetModelStore.isDownloaded
+            modelDownloadError = nil
+        } catch {
+            presentSaveError(error)
+        }
+    }
+
     private func saveModel() {
         do {
             _ = try settingsManager.update { settings in
@@ -457,5 +529,49 @@ private struct SettingsView: View {
         let alert = NSAlert(error: error)
         alert.messageText = "Could not save settings"
         alert.runModal()
+    }
+
+    private func downloadLocalModel() {
+        guard !isDownloadingModel, !isModelDownloaded else { return }
+        isDownloadingModel = true
+        modelDownloadProgress = 0
+        modelDownloadError = nil
+
+        Task {
+            do {
+                try await LocalParakeetModelStore.download { progress in
+                    Task { @MainActor in
+                        modelDownloadProgress = max(modelDownloadProgress, progress)
+                    }
+                }
+                await MainActor.run {
+                    isModelDownloaded = true
+                    isDownloadingModel = false
+                    modelDownloadProgress = 1
+                }
+            } catch {
+                Logger.shared.error("Local model download failed: \(error.localizedDescription)")
+                await MainActor.run {
+                    isModelDownloaded = LocalParakeetModelStore.isDownloaded
+                    isDownloadingModel = false
+                    modelDownloadError = error.localizedDescription
+                }
+            }
+        }
+    }
+
+    private func removeLocalModel() {
+        do {
+            try LocalParakeetModelStore.remove()
+            Task {
+                await LocalParakeetTranscriptionClient.shared.unload()
+            }
+            isModelDownloaded = LocalParakeetModelStore.isDownloaded
+            modelDownloadProgress = 0
+            modelDownloadError = nil
+        } catch {
+            Logger.shared.error("Local model removal failed: \(error.localizedDescription)")
+            modelDownloadError = error.localizedDescription
+        }
     }
 }

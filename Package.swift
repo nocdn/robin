@@ -10,9 +10,15 @@ let package = Package(
     products: [
         .executable(name: "robin", targets: ["robin"])
     ],
+    dependencies: [
+        .package(url: "https://github.com/FluidInference/FluidAudio.git", from: "0.14.5")
+    ],
     targets: [
         .executableTarget(
             name: "robin",
+            dependencies: [
+                .product(name: "FluidAudio", package: "FluidAudio")
+            ],
             path: "Sources/robin"
         )
     ]

@@ -13,6 +13,7 @@ final class AppCoordinator {
     private let notifier = Notifier()
     private let recorder = AudioRecorder()
     private let textDelivery = TextDelivery()
+    private let localParakeetClient = LocalParakeetTranscriptionClient.shared
     private var settings: AppSettings?
     private var hotKeyMonitor: GlobalHotKeyMonitor?
     private var isTranscribing = false
@@ -122,7 +123,9 @@ final class AppCoordinator {
             settings = currentSettings
             Logger.shared.info("Settings reloaded before recording; insertMode=\(currentSettings.deliveryMode.rawValue)")
 
-            guard !currentSettings.apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            guard currentSettings.transcriptionBackend != .cohere ||
+                !currentSettings.apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            else {
                 throw RobinError.missingAPIKey
             }
 
@@ -150,9 +153,16 @@ final class AppCoordinator {
 
         Task {
             do {
-                let client = CohereTranscriptionClient(settings: currentSettings)
-                Logger.shared.info("Sending recording to Cohere")
-                let text = try await client.transcribe(audioURL: audioURL)
+                let text: String
+                switch currentSettings.transcriptionBackend {
+                case .cohere:
+                    let client = CohereTranscriptionClient(settings: currentSettings)
+                    Logger.shared.info("Sending recording to Cohere")
+                    text = try await client.transcribe(audioURL: audioURL)
+                case .localParakeet:
+                    Logger.shared.info("Transcribing recording with local Parakeet")
+                    text = try await localParakeetClient.transcribe(audioURL: audioURL, settings: currentSettings)
+                }
                 Logger.shared.info("Transcription complete; characters=\(text.count)")
                 let transcriptURL = try TranscriptStore(settings: currentSettings).save(text)
                 Logger.shared.info("Transcript saved: \(transcriptURL.path)")

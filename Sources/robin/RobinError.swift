@@ -7,6 +7,7 @@ enum RobinError: LocalizedError {
     case hotKeyPermissionDenied
     case microphonePermissionDenied
     case audioRecordingFailed
+    case localModelNotDownloaded(URL)
     case textInsertionFailed(String)
     case invalidResponse
     case apiError(status: Int, body: String)
@@ -25,6 +26,8 @@ enum RobinError: LocalizedError {
             "Microphone permission was denied. Enable Robin in System Settings > Privacy & Security > Microphone."
         case .audioRecordingFailed:
             "Could not start audio recording."
+        case .localModelNotDownloaded(let url):
+            "Parakeet model is not downloaded. Download it in Robin Settings. Expected path: \(url.path)"
         case .textInsertionFailed(let reason):
             "Could not insert transcription text: \(reason)"
         case .invalidResponse:
