@@ -35,7 +35,8 @@ final class GlobalHotKeyMonitor {
         Logger.shared.info("AX trusted status: \(trusted)")
 
         let mask = (1 << CGEventType.keyDown.rawValue) |
-            (1 << CGEventType.keyUp.rawValue)
+            (1 << CGEventType.keyUp.rawValue) |
+            (1 << CGEventType.flagsChanged.rawValue)
         Logger.shared.info("Creating CGEvent tap with mask=\(mask)")
 
         guard let tap = CGEvent.tapCreate(
@@ -86,6 +87,30 @@ final class GlobalHotKeyMonitor {
         Logger.shared.info("Observed configured keyCode=\(keyCode) eventType=\(type.rawValue) flags=\(flags.rawValue)")
 
         switch type {
+        case .flagsChanged:
+            guard hotKey.isFunctionKey else { return }
+            let functionPressed = flags.contains(.maskSecondaryFn)
+            if functionPressed {
+                guard !isPressed else {
+                    Logger.shared.info("Ignoring flagsChanged because hotkey is already pressed")
+                    return
+                }
+                guard flags.containsAll(hotKey.modifiers) else {
+                    Logger.shared.info("Ignoring flagsChanged because modifiers do not match required=\(hotKey.modifiers.rawValue) actual=\(flags.rawValue)")
+                    return
+                }
+                isPressed = true
+                Logger.shared.info("Hotkey match: pressed")
+                onPressed?()
+            } else {
+                guard isPressed else {
+                    Logger.shared.info("Ignoring flagsChanged because hotkey was not marked pressed")
+                    return
+                }
+                isPressed = false
+                Logger.shared.info("Hotkey match: released")
+                onReleased?()
+            }
         case .keyDown:
             let autoRepeat = event.getIntegerValueField(.keyboardEventAutorepeat) != 0
             guard !autoRepeat else {

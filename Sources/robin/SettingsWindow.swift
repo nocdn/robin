@@ -409,7 +409,10 @@ private struct SettingsView: View {
         hotkeyError = nil
         isListeningForHotkey = true
 
-        eventMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+        eventMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .flagsChanged]) { event in
+            if event.type == .flagsChanged, HotKeyParser.keyName(for: event.keyCode) != "fn" {
+                return event
+            }
             captureHotKey(from: event)
             return nil
         }
@@ -469,7 +472,7 @@ private struct SettingsView: View {
         if modifiers.contains(.command) {
             pieces.append("command")
         }
-        if modifiers.contains(.function) {
+        if modifiers.contains(.function), keyName != "fn" {
             pieces.append("fn")
         }
         pieces.append(keyName)
