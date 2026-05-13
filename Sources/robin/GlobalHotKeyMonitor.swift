@@ -42,7 +42,7 @@ final class GlobalHotKeyMonitor {
         guard let tap = CGEvent.tapCreate(
             tap: .cgSessionEventTap,
             place: .headInsertEventTap,
-            options: .listenOnly,
+            options: .defaultTap,
             eventsOfInterest: CGEventMask(mask),
             callback: eventCallback,
             userInfo: Unmanaged.passUnretained(self).toOpaque()
@@ -72,72 +72,76 @@ final class GlobalHotKeyMonitor {
         eventTap = nil
     }
 
-    fileprivate func handle(type: CGEventType, event: CGEvent) {
+    fileprivate func handle(type: CGEventType, event: CGEvent) -> Bool {
         if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
             Logger.shared.error("CGEvent tap disabled with type=\(type.rawValue); re-enabling")
             if let eventTap {
                 CGEvent.tapEnable(tap: eventTap, enable: true)
             }
-            return
+            return false
         }
 
         let keyCode = CGKeyCode(event.getIntegerValueField(.keyboardEventKeycode))
         let flags = event.flags
-        guard keyCode == hotKey.keyCode else { return }
+        guard keyCode == hotKey.keyCode else { return false }
         Logger.shared.info("Observed configured keyCode=\(keyCode) eventType=\(type.rawValue) flags=\(flags.rawValue)")
 
         switch type {
         case .flagsChanged:
-            guard hotKey.isFunctionKey else { return }
+            guard hotKey.isFunctionKey else { return false }
             let functionPressed = flags.contains(.maskSecondaryFn)
             if functionPressed {
                 guard !isPressed else {
                     Logger.shared.info("Ignoring flagsChanged because hotkey is already pressed")
-                    return
+                    return true
                 }
                 guard flags.containsAll(hotKey.modifiers) else {
                     Logger.shared.info("Ignoring flagsChanged because modifiers do not match required=\(hotKey.modifiers.rawValue) actual=\(flags.rawValue)")
-                    return
+                    return false
                 }
                 isPressed = true
                 Logger.shared.info("Hotkey match: pressed")
                 onPressed?()
+                return true
             } else {
                 guard isPressed else {
                     Logger.shared.info("Ignoring flagsChanged because hotkey was not marked pressed")
-                    return
+                    return false
                 }
                 isPressed = false
                 Logger.shared.info("Hotkey match: released")
                 onReleased?()
+                return true
             }
         case .keyDown:
             let autoRepeat = event.getIntegerValueField(.keyboardEventAutorepeat) != 0
+            guard isPressed || flags.containsAll(hotKey.modifiers) else {
+                Logger.shared.info("Ignoring keyDown because modifiers do not match required=\(hotKey.modifiers.rawValue) actual=\(flags.rawValue)")
+                return false
+            }
             guard !autoRepeat else {
                 Logger.shared.info("Ignoring autorepeat keyDown")
-                return
+                return true
             }
             guard !isPressed else {
                 Logger.shared.info("Ignoring keyDown because hotkey is already pressed")
-                return
-            }
-            guard flags.containsAll(hotKey.modifiers) else {
-                Logger.shared.info("Ignoring keyDown because modifiers do not match required=\(hotKey.modifiers.rawValue) actual=\(flags.rawValue)")
-                return
+                return true
             }
             isPressed = true
             Logger.shared.info("Hotkey match: pressed")
             onPressed?()
+            return true
         case .keyUp:
             guard isPressed else {
                 Logger.shared.info("Ignoring keyUp because hotkey was not marked pressed")
-                return
+                return false
             }
             isPressed = false
             Logger.shared.info("Hotkey match: released")
             onReleased?()
+            return true
         default:
-            break
+            return false
         }
     }
 }
@@ -150,7 +154,9 @@ private let eventCallback: CGEventTapCallBack = { _, type, event, userInfo in
     let monitor = Unmanaged<GlobalHotKeyMonitor>
         .fromOpaque(userInfo)
         .takeUnretainedValue()
-    monitor.handle(type: type, event: event)
+    if monitor.handle(type: type, event: event) {
+        return nil
+    }
     return Unmanaged.passUnretained(event)
 }
 
