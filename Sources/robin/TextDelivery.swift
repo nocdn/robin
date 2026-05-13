@@ -10,13 +10,8 @@ struct TextDelivery {
             do {
                 try insert(text, target: target)
             } catch {
-                Logger.shared.error("Text insertion failed; pasting transcript via clipboard instead: \(error.localizedDescription)")
-                do {
-                    try pasteWithClipboard(text)
-                } catch {
-                    Logger.shared.error("Clipboard paste failed; leaving transcript on clipboard instead: \(error.localizedDescription)")
-                    copyToClipboard(text)
-                }
+                Logger.shared.error("Text insertion failed; copying transcript to clipboard instead: \(error.localizedDescription)")
+                copyToClipboard(text)
             }
         case .clipboard:
             copyToClipboard(text)
@@ -79,75 +74,10 @@ struct TextDelivery {
         }
     }
 
-    private func pasteWithClipboard(_ text: String) throws {
-        guard !text.isEmpty else { return }
-
-        let pasteboard = NSPasteboard.general
-        let previousClipboard = ClipboardSnapshot.capture(from: pasteboard)
-        copyToClipboard(text)
-        let transcriptChangeCount = pasteboard.changeCount
-
-        guard let source = CGEventSource(stateID: .hidSystemState),
-              let keyDown = CGEvent(keyboardEventSource: source, virtualKey: 9, keyDown: true),
-              let keyUp = CGEvent(keyboardEventSource: source, virtualKey: 9, keyDown: false)
-        else {
-            throw RobinError.textInsertionFailed("Could not create paste key events.")
-        }
-
-        keyDown.flags = .maskCommand
-        keyUp.flags = .maskCommand
-        keyDown.post(tap: .cghidEventTap)
-        keyUp.post(tap: .cghidEventTap)
-        Logger.shared.info("Pasted transcript via clipboard")
-
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-            guard pasteboard.changeCount == transcriptChangeCount else {
-                Logger.shared.info("Skipping clipboard restore because pasteboard changed")
-                return
-            }
-
-            previousClipboard.restore(to: pasteboard)
-            Logger.shared.info("Restored clipboard after paste fallback")
-        }
-    }
-
     private func copyToClipboard(_ text: String) {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(text, forType: .string)
         Logger.shared.info("Copied text to clipboard")
-    }
-
-    private struct ClipboardSnapshot {
-        let items: [Item]
-
-        static func capture(from pasteboard: NSPasteboard) -> ClipboardSnapshot {
-            let items = (pasteboard.pasteboardItems ?? []).map { item in
-                Item(
-                    types: item.types.compactMap { type in
-                        item.data(forType: type).map { (type, $0) }
-                    }
-                )
-            }
-            return ClipboardSnapshot(items: items)
-        }
-
-        func restore(to pasteboard: NSPasteboard) {
-            pasteboard.clearContents()
-            guard !items.isEmpty else { return }
-
-            let restoredItems = items.map { item in
-                let pasteboardItem = NSPasteboardItem()
-                for (type, data) in item.types {
-                    pasteboardItem.setData(data, forType: type)
-                }
-                return pasteboardItem
-            }
-            pasteboard.writeObjects(restoredItems)
-        }
-
-        struct Item {
-            let types: [(NSPasteboard.PasteboardType, Data)]
-        }
     }
 }
 
