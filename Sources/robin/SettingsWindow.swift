@@ -90,6 +90,22 @@ private enum TranscriptionMode: String, CaseIterable, Identifiable {
     }
 }
 
+private struct SettingsCheckboxRow: View {
+    let title: String
+    @Binding var isOn: Bool
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Toggle("", isOn: $isOn)
+                .toggleStyle(.checkbox)
+                .controlSize(.small)
+                .labelsHidden()
+
+            Text(title)
+        }
+    }
+}
+
 private struct SettingsView: View {
     private enum FocusedField: Hashable {
         case historyDirectory
@@ -116,6 +132,7 @@ private struct SettingsView: View {
     @State private var savedHistoryDirectory: String
     @State private var deliveryMode: TranscriptDeliveryMode
     @State private var alwaysCopyTranscription: Bool
+    @State private var startAtLogin: Bool
     @State private var clickBeforeInserting: Bool
     @State private var language: String
     @FocusState private var focusedField: FocusedField?
@@ -147,6 +164,7 @@ private struct SettingsView: View {
         _savedHistoryDirectory = State(initialValue: settings.historyDirectory)
         _deliveryMode = State(initialValue: settings.deliveryMode)
         _alwaysCopyTranscription = State(initialValue: settings.alwaysCopyTranscription)
+        _startAtLogin = State(initialValue: settings.startAtLogin)
         _clickBeforeInserting = State(initialValue: settings.clickBeforeInserting)
         _language = State(initialValue: settings.language)
     }
@@ -309,36 +327,27 @@ private struct SettingsView: View {
                     onLayoutChange()
                 }
 
-                if deliveryMode == .insert {
-                    VStack(alignment: .leading, spacing: 8) {
-                        HStack(spacing: 8) {
-                            Toggle("", isOn: $alwaysCopyTranscription)
-                                .toggleStyle(.checkbox)
-                                .controlSize(.small)
-                                .labelsHidden()
-
-                            Text("Always copy transcription")
-                        }
-                        .onChange(of: alwaysCopyTranscription) { _, _ in
-                            saveAlwaysCopyTranscription()
-                        }
-
-                        if !isStreamingModeSelected {
-                            HStack(spacing: 8) {
-                                Toggle("", isOn: $clickBeforeInserting)
-                                    .toggleStyle(.checkbox)
-                                    .controlSize(.small)
-                                    .labelsHidden()
-
-                                Text("Click before inserting")
+                VStack(alignment: .leading, spacing: 8) {
+                    if deliveryMode == .insert {
+                        SettingsCheckboxRow(title: "Always copy transcription", isOn: $alwaysCopyTranscription)
+                            .onChange(of: alwaysCopyTranscription) { _, _ in
+                                saveAlwaysCopyTranscription()
                             }
+                    }
+
+                    SettingsCheckboxRow(title: "Start at login", isOn: $startAtLogin)
+                        .onChange(of: startAtLogin) { previousValue, _ in
+                            saveStartAtLogin(previousValue: previousValue)
+                        }
+
+                    if deliveryMode == .insert, !isStreamingModeSelected {
+                        SettingsCheckboxRow(title: "Click before inserting", isOn: $clickBeforeInserting)
                             .onChange(of: clickBeforeInserting) { _, _ in
                                 saveClickBeforeInserting()
                             }
-                        }
                     }
-                    .padding(.top, 8)
                 }
+                .padding(.top, 8)
             }
 
             HStack(spacing: 8) {
@@ -639,6 +648,18 @@ private struct SettingsView: View {
                 settings.alwaysCopyTranscription = alwaysCopyTranscription
             }
         } catch {
+            presentSaveError(error)
+        }
+    }
+
+    private func saveStartAtLogin(previousValue: Bool) {
+        do {
+            try LoginItemController.setEnabled(startAtLogin)
+            _ = try settingsManager.update { settings in
+                settings.startAtLogin = startAtLogin
+            }
+        } catch {
+            startAtLogin = previousValue
             presentSaveError(error)
         }
     }

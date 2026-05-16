@@ -43,6 +43,7 @@ final class AppCoordinator {
             Logger.shared.info("Application support directory ready")
             settings = try settingsManager.loadOrCreate()
             Logger.shared.info("Loaded settings")
+            applyStartAtLoginPreference()
             try configureHotKey()
             await notifier.requestAuthorization()
             do {
@@ -93,6 +94,7 @@ final class AppCoordinator {
         do {
             Logger.shared.info("Resetting settings to defaults")
             settings = try settingsManager.resetToDefaults()
+            applyStartAtLoginPreference()
             hotKeyMonitor?.stop()
             try configureHotKey()
             settingsWindow.show()
@@ -131,6 +133,17 @@ final class AppCoordinator {
         } catch {
             Logger.shared.error("Reload hotkey failed: \(error.localizedDescription)")
             notifier.error(error)
+        }
+    }
+
+    private func applyStartAtLoginPreference() {
+        guard let settings else { return }
+
+        do {
+            try LoginItemController.setEnabled(settings.startAtLogin)
+            Logger.shared.info("Applied start at login preference: \(settings.startAtLogin)")
+        } catch {
+            Logger.shared.error("Updating start at login failed: \(error.localizedDescription)")
         }
     }
 

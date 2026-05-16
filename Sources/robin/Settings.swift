@@ -10,6 +10,7 @@ struct AppSettings: Sendable {
     var hotkey: String
     var deliveryMode: TranscriptDeliveryMode
     var alwaysCopyTranscription: Bool
+    var startAtLogin: Bool
     var clickBeforeInserting: Bool
     var historyDirectory: String
     var recordingDirectory: String
@@ -32,6 +33,7 @@ struct AppSettings: Sendable {
         hotkey: HotKeyParser.defaultValue,
         deliveryMode: .insert,
         alwaysCopyTranscription: false,
+        startAtLogin: true,
         clickBeforeInserting: false,
         historyDirectory: "~/Library/Application Support/Robin/History",
         recordingDirectory: "~/Library/Caches/Robin/Recordings"
@@ -73,6 +75,7 @@ final class SettingsManager {
         static let language = "language"
         static let deliveryMode = "deliveryMode"
         static let alwaysCopyTranscription = "alwaysCopyTranscription"
+        static let startAtLogin = "startAtLogin"
         static let clickBeforeInserting = "clickBeforeInserting"
         static let hotkey = "hotkey"
         static let historyDirectory = "historyDirectory"
@@ -126,6 +129,7 @@ final class SettingsManager {
             hotkey: userDefaults.string(forKey: Keys.hotkey) ?? defaults.hotkey,
             deliveryMode: TranscriptDeliveryMode(rawValue: configuredDeliveryMode.lowercased()) ?? defaults.deliveryMode,
             alwaysCopyTranscription: userDefaults.object(forKey: Keys.alwaysCopyTranscription) as? Bool ?? defaults.alwaysCopyTranscription,
+            startAtLogin: userDefaults.object(forKey: Keys.startAtLogin) as? Bool ?? defaults.startAtLogin,
             clickBeforeInserting: userDefaults.object(forKey: Keys.clickBeforeInserting) as? Bool ?? defaults.clickBeforeInserting,
             historyDirectory: userDefaults.string(forKey: Keys.historyDirectory) ?? defaults.historyDirectory,
             recordingDirectory: defaults.recordingDirectory
@@ -145,6 +149,7 @@ final class SettingsManager {
         userDefaults.removeObject(forKey: Keys.language)
         userDefaults.removeObject(forKey: Keys.deliveryMode)
         userDefaults.removeObject(forKey: Keys.alwaysCopyTranscription)
+        userDefaults.removeObject(forKey: Keys.startAtLogin)
         userDefaults.removeObject(forKey: Keys.clickBeforeInserting)
         userDefaults.removeObject(forKey: Keys.hotkey)
         userDefaults.removeObject(forKey: Keys.historyDirectory)
@@ -162,6 +167,7 @@ final class SettingsManager {
         userDefaults.set(settings.language, forKey: Keys.language)
         userDefaults.set(settings.deliveryMode.rawValue, forKey: Keys.deliveryMode)
         userDefaults.set(settings.alwaysCopyTranscription, forKey: Keys.alwaysCopyTranscription)
+        userDefaults.set(settings.startAtLogin, forKey: Keys.startAtLogin)
         userDefaults.set(settings.clickBeforeInserting, forKey: Keys.clickBeforeInserting)
         userDefaults.set(settings.hotkey, forKey: Keys.hotkey)
         userDefaults.set(settings.historyDirectory, forKey: Keys.historyDirectory)
