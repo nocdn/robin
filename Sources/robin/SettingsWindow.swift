@@ -116,6 +116,7 @@ private struct SettingsView: View {
     @State private var savedHistoryDirectory: String
     @State private var deliveryMode: TranscriptDeliveryMode
     @State private var alwaysCopyTranscription: Bool
+    @State private var clickBeforeInserting: Bool
     @State private var language: String
     @FocusState private var focusedField: FocusedField?
 
@@ -146,6 +147,7 @@ private struct SettingsView: View {
         _savedHistoryDirectory = State(initialValue: settings.historyDirectory)
         _deliveryMode = State(initialValue: settings.deliveryMode)
         _alwaysCopyTranscription = State(initialValue: settings.alwaysCopyTranscription)
+        _clickBeforeInserting = State(initialValue: settings.clickBeforeInserting)
         _language = State(initialValue: settings.language)
     }
 
@@ -308,18 +310,34 @@ private struct SettingsView: View {
                 }
 
                 if deliveryMode == .insert {
-                    HStack(spacing: 8) {
-                        Toggle("", isOn: $alwaysCopyTranscription)
-                            .toggleStyle(.checkbox)
-                            .controlSize(.small)
-                            .labelsHidden()
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack(spacing: 8) {
+                            Toggle("", isOn: $alwaysCopyTranscription)
+                                .toggleStyle(.checkbox)
+                                .controlSize(.small)
+                                .labelsHidden()
 
-                        Text("Always copy transcription")
+                            Text("Always copy transcription")
+                        }
+                        .onChange(of: alwaysCopyTranscription) { _, _ in
+                            saveAlwaysCopyTranscription()
+                        }
+
+                        if !isStreamingModeSelected {
+                            HStack(spacing: 8) {
+                                Toggle("", isOn: $clickBeforeInserting)
+                                    .toggleStyle(.checkbox)
+                                    .controlSize(.small)
+                                    .labelsHidden()
+
+                                Text("Click before inserting")
+                            }
+                            .onChange(of: clickBeforeInserting) { _, _ in
+                                saveClickBeforeInserting()
+                            }
+                        }
                     }
-                    .padding(.top, 6)
-                    .onChange(of: alwaysCopyTranscription) { _, _ in
-                        saveAlwaysCopyTranscription()
-                    }
+                    .padding(.top, 8)
                 }
             }
 
@@ -375,6 +393,10 @@ private struct SettingsView: View {
         case .streaming:
             LocalParakeetStreamingModelStore.modelName
         }
+    }
+
+    private var isStreamingModeSelected: Bool {
+        mode == .parakeet && parakeetMode == .streaming
     }
 
     private var selectedLocalModelDownloaded: Bool {
@@ -615,6 +637,16 @@ private struct SettingsView: View {
         do {
             _ = try settingsManager.update { settings in
                 settings.alwaysCopyTranscription = alwaysCopyTranscription
+            }
+        } catch {
+            presentSaveError(error)
+        }
+    }
+
+    private func saveClickBeforeInserting() {
+        do {
+            _ = try settingsManager.update { settings in
+                settings.clickBeforeInserting = clickBeforeInserting
             }
         } catch {
             presentSaveError(error)

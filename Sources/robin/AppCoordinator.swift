@@ -211,9 +211,11 @@ final class AppCoordinator {
                 case .cohere:
                     let client = CohereTranscriptionClient(settings: currentSettings)
                     Logger.shared.info("Sending recording to Cohere")
+                    clickBeforeBatchInsertionIfNeeded(settings: currentSettings)
                     text = try await client.transcribe(audioURL: audioURL)
                 case .localParakeet:
                     Logger.shared.info("Transcribing recording with local Parakeet standard batch")
+                    clickBeforeBatchInsertionIfNeeded(settings: currentSettings)
                     text = try await localParakeetClient.transcribe(audioURL: audioURL, settings: currentSettings)
                 }
                 try completeTranscription(text, settings: currentSettings)
@@ -225,6 +227,20 @@ final class AppCoordinator {
 
             workflowState = .idle
             Logger.shared.info("Transcription workflow finished")
+        }
+    }
+
+    private func clickBeforeBatchInsertionIfNeeded(settings currentSettings: AppSettings) {
+        guard currentSettings.deliveryMode == .insert,
+              currentSettings.clickBeforeInserting
+        else {
+            return
+        }
+
+        do {
+            try textDelivery.clickCurrentMouseLocationForInsertion()
+        } catch {
+            Logger.shared.error("Click before inserting failed: \(error.localizedDescription)")
         }
     }
 

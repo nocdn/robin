@@ -10,6 +10,7 @@ struct AppSettings: Sendable {
     var hotkey: String
     var deliveryMode: TranscriptDeliveryMode
     var alwaysCopyTranscription: Bool
+    var clickBeforeInserting: Bool
     var historyDirectory: String
     var recordingDirectory: String
 
@@ -31,6 +32,7 @@ struct AppSettings: Sendable {
         hotkey: HotKeyParser.defaultValue,
         deliveryMode: .insert,
         alwaysCopyTranscription: false,
+        clickBeforeInserting: false,
         historyDirectory: "~/Library/Application Support/Robin/History",
         recordingDirectory: "~/Library/Caches/Robin/Recordings"
     )
@@ -71,6 +73,7 @@ final class SettingsManager {
         static let language = "language"
         static let deliveryMode = "deliveryMode"
         static let alwaysCopyTranscription = "alwaysCopyTranscription"
+        static let clickBeforeInserting = "clickBeforeInserting"
         static let hotkey = "hotkey"
         static let historyDirectory = "historyDirectory"
     }
@@ -123,6 +126,7 @@ final class SettingsManager {
             hotkey: userDefaults.string(forKey: Keys.hotkey) ?? defaults.hotkey,
             deliveryMode: TranscriptDeliveryMode(rawValue: configuredDeliveryMode.lowercased()) ?? defaults.deliveryMode,
             alwaysCopyTranscription: userDefaults.object(forKey: Keys.alwaysCopyTranscription) as? Bool ?? defaults.alwaysCopyTranscription,
+            clickBeforeInserting: userDefaults.object(forKey: Keys.clickBeforeInserting) as? Bool ?? defaults.clickBeforeInserting,
             historyDirectory: userDefaults.string(forKey: Keys.historyDirectory) ?? defaults.historyDirectory,
             recordingDirectory: defaults.recordingDirectory
         )
@@ -141,6 +145,7 @@ final class SettingsManager {
         userDefaults.removeObject(forKey: Keys.language)
         userDefaults.removeObject(forKey: Keys.deliveryMode)
         userDefaults.removeObject(forKey: Keys.alwaysCopyTranscription)
+        userDefaults.removeObject(forKey: Keys.clickBeforeInserting)
         userDefaults.removeObject(forKey: Keys.hotkey)
         userDefaults.removeObject(forKey: Keys.historyDirectory)
         try removeLegacyConfigIfNeeded()
@@ -157,6 +162,7 @@ final class SettingsManager {
         userDefaults.set(settings.language, forKey: Keys.language)
         userDefaults.set(settings.deliveryMode.rawValue, forKey: Keys.deliveryMode)
         userDefaults.set(settings.alwaysCopyTranscription, forKey: Keys.alwaysCopyTranscription)
+        userDefaults.set(settings.clickBeforeInserting, forKey: Keys.clickBeforeInserting)
         userDefaults.set(settings.hotkey, forKey: Keys.hotkey)
         userDefaults.set(settings.historyDirectory, forKey: Keys.historyDirectory)
         try fileManager.createDirectory(at: settings.resolvedHistoryDirectory, withIntermediateDirectories: true)

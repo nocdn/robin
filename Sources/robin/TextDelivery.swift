@@ -27,6 +27,42 @@ struct TextDelivery {
         try pasteViaClipboard(text)
     }
 
+    func clickCurrentMouseLocationForInsertion() throws {
+        guard let source = CGEventSource(stateID: .hidSystemState) else {
+            throw RobinError.textInsertionFailed("Could not create mouse event source.")
+        }
+        source.localEventsSuppressionInterval = 0
+
+        guard let currentMouseEvent = CGEvent(source: source) else {
+            throw RobinError.textInsertionFailed("Could not read current mouse position.")
+        }
+
+        let location = currentMouseEvent.location
+        guard let mouseDown = CGEvent(
+            mouseEventSource: source,
+            mouseType: .leftMouseDown,
+            mouseCursorPosition: location,
+            mouseButton: .left
+        ),
+            let mouseUp = CGEvent(
+                mouseEventSource: source,
+                mouseType: .leftMouseUp,
+                mouseCursorPosition: location,
+                mouseButton: .left
+            )
+        else {
+            throw RobinError.textInsertionFailed("Could not create mouse click events.")
+        }
+
+        mouseDown.setIntegerValueField(.mouseEventClickState, value: 1)
+        mouseUp.setIntegerValueField(.mouseEventClickState, value: 1)
+        mouseDown.post(tap: .cghidEventTap)
+        usleep(25_000)
+        mouseUp.post(tap: .cghidEventTap)
+        usleep(100_000)
+        Logger.shared.info("Clicked current mouse location before batch insertion")
+    }
+
     private func pasteViaClipboard(_ text: String) throws {
         guard !text.isEmpty else { return }
 
