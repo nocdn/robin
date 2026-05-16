@@ -12,6 +12,7 @@ final class AppCoordinator {
     )
     private let notifier = Notifier()
     private let recorder = AudioRecorder()
+    private let recordingIndicator = RecordingIndicatorWindowController()
     private let liveAudioCapture = LiveAudioCapture()
     private let textDelivery = TextDelivery()
     private let localParakeetClient = LocalParakeetTranscriptionClient.shared
@@ -173,11 +174,13 @@ final class AppCoordinator {
             } else {
                 try recorder.start(directory: currentSettings.resolvedRecordingDirectory)
                 workflowState = .recordingStandard
+                recordingIndicator.showRecording()
                 Logger.shared.info("Standard batch recording started")
             }
         } catch {
             Logger.shared.error("Start recording failed: \(error.localizedDescription)")
             workflowState = .idle
+            recordingIndicator.hide()
             notifier.error(error)
         }
     }
@@ -206,15 +209,18 @@ final class AppCoordinator {
         guard let audioURL = recorder.stop() else {
             Logger.shared.info("Release ignored because recorder was not active")
             workflowState = .idle
+            recordingIndicator.hide()
             return
         }
         guard let currentSettings = settings else {
             Logger.shared.error("Release ignored because settings were missing")
             workflowState = .idle
+            recordingIndicator.hide()
             return
         }
 
         workflowState = .transcribingStandard
+        recordingIndicator.showProcessing()
         Logger.shared.info("Standard batch recording stopped: \(audioURL.path)")
 
         Task {
@@ -239,6 +245,7 @@ final class AppCoordinator {
             }
 
             workflowState = .idle
+            recordingIndicator.hide()
             Logger.shared.info("Transcription workflow finished")
         }
     }
@@ -280,6 +287,7 @@ final class AppCoordinator {
         guard !streamingStopRequested, workflowState == .startingStreaming else {
             await localParakeetStreamingClient.cancelSession()
             workflowState = .idle
+            recordingIndicator.hide()
             streamingStopRequested = false
             Logger.shared.info("Streaming startup cancelled before capture began")
             return
@@ -302,6 +310,7 @@ final class AppCoordinator {
             }
         }
         workflowState = .streaming
+        recordingIndicator.showRecording()
         Logger.shared.info(
             "STREAM_WORKFLOW_RECORDING_STARTED liveInsertionEnabled=\(streamingLiveInsertionEnabled) finalDeliveryOnRelease=\(!streamingLiveInsertionEnabled)"
         )
@@ -312,11 +321,13 @@ final class AppCoordinator {
             Logger.shared.error("Streaming release ignored because settings were missing")
             liveAudioCapture.stop()
             workflowState = .idle
+            recordingIndicator.hide()
             return
         }
 
         workflowState = .finalizingStreaming
         streamingReleaseStartedAt = Date()
+        recordingIndicator.showProcessing()
         Logger.shared.info("STREAM_WORKFLOW_RELEASE_BEGIN stoppingCapture=true")
         liveAudioCapture.stop()
         let processingTask = streamingProcessingTask
@@ -344,6 +355,7 @@ final class AppCoordinator {
             }
 
             workflowState = .idle
+            recordingIndicator.hide()
             let elapsedMs = streamingReleaseStartedAt.map { Int(Date().timeIntervalSince($0) * 1000) } ?? -1
             streamingReleaseStartedAt = nil
             streamingLiveInsertionEnabled = false
