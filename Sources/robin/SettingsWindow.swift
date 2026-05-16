@@ -134,6 +134,7 @@ private struct SettingsView: View {
     @State private var alwaysCopyTranscription: Bool
     @State private var startAtLogin: Bool
     @State private var clickBeforeInserting: Bool
+    @State private var recordingOverlay: RecordingOverlayMode
     @State private var language: String
     @FocusState private var focusedField: FocusedField?
 
@@ -166,6 +167,7 @@ private struct SettingsView: View {
         _alwaysCopyTranscription = State(initialValue: settings.alwaysCopyTranscription)
         _startAtLogin = State(initialValue: settings.startAtLogin)
         _clickBeforeInserting = State(initialValue: settings.clickBeforeInserting)
+        _recordingOverlay = State(initialValue: settings.recordingOverlay)
         _language = State(initialValue: settings.language)
     }
 
@@ -346,6 +348,21 @@ private struct SettingsView: View {
                                 saveClickBeforeInserting()
                             }
                     }
+
+                    HStack(spacing: 8) {
+                        Text("Overlay")
+
+                        Picker("", selection: $recordingOverlay) {
+                            ForEach(RecordingOverlayMode.allCases) { mode in
+                                Text(mode.displayName).tag(mode)
+                            }
+                        }
+                        .labelsHidden()
+                        .onChange(of: recordingOverlay) { _, _ in
+                            saveRecordingOverlay()
+                        }
+                    }
+                    .padding(.top, 4)
                 }
                 .padding(.top, 8)
             }
@@ -668,6 +685,16 @@ private struct SettingsView: View {
         do {
             _ = try settingsManager.update { settings in
                 settings.clickBeforeInserting = clickBeforeInserting
+            }
+        } catch {
+            presentSaveError(error)
+        }
+    }
+
+    private func saveRecordingOverlay() {
+        do {
+            _ = try settingsManager.update { settings in
+                settings.recordingOverlay = recordingOverlay
             }
         } catch {
             presentSaveError(error)

@@ -174,7 +174,7 @@ final class AppCoordinator {
             } else {
                 try recorder.start(directory: currentSettings.resolvedRecordingDirectory)
                 workflowState = .recordingStandard
-                recordingIndicator.showRecording()
+                showRecordingIndicator(for: currentSettings)
                 Logger.shared.info("Standard batch recording started")
             }
         } catch {
@@ -220,7 +220,7 @@ final class AppCoordinator {
         }
 
         workflowState = .transcribingStandard
-        recordingIndicator.showProcessing()
+        showProcessingIndicator(for: currentSettings)
         Logger.shared.info("Standard batch recording stopped: \(audioURL.path)")
 
         Task {
@@ -310,7 +310,7 @@ final class AppCoordinator {
             }
         }
         workflowState = .streaming
-        recordingIndicator.showRecording()
+        showRecordingIndicator(for: currentSettings)
         Logger.shared.info(
             "STREAM_WORKFLOW_RECORDING_STARTED liveInsertionEnabled=\(streamingLiveInsertionEnabled) finalDeliveryOnRelease=\(!streamingLiveInsertionEnabled)"
         )
@@ -327,7 +327,7 @@ final class AppCoordinator {
 
         workflowState = .finalizingStreaming
         streamingReleaseStartedAt = Date()
-        recordingIndicator.showProcessing()
+        showProcessingIndicator(for: currentSettings)
         Logger.shared.info("STREAM_WORKFLOW_RELEASE_BEGIN stoppingCapture=true")
         liveAudioCapture.stop()
         let processingTask = streamingProcessingTask
@@ -398,6 +398,24 @@ final class AppCoordinator {
             streamingLiveInsertionEnabled = false
             Logger.shared.error("STREAM_LIVE_INSERT_DISABLED error=\(error.localizedDescription)")
             notifier.error(error)
+        }
+    }
+
+    private func showRecordingIndicator(for settings: AppSettings) {
+        switch settings.recordingOverlay {
+        case .hidden:
+            recordingIndicator.hide()
+        case .bottomCenter:
+            recordingIndicator.showRecording()
+        }
+    }
+
+    private func showProcessingIndicator(for settings: AppSettings) {
+        switch settings.recordingOverlay {
+        case .hidden:
+            recordingIndicator.hide()
+        case .bottomCenter:
+            recordingIndicator.showProcessing()
         }
     }
 

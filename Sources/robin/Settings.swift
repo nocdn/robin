@@ -12,6 +12,7 @@ struct AppSettings: Sendable {
     var alwaysCopyTranscription: Bool
     var startAtLogin: Bool
     var clickBeforeInserting: Bool
+    var recordingOverlay: RecordingOverlayMode
     var historyDirectory: String
     var recordingDirectory: String
 
@@ -35,6 +36,7 @@ struct AppSettings: Sendable {
         alwaysCopyTranscription: false,
         startAtLogin: true,
         clickBeforeInserting: false,
+        recordingOverlay: .bottomCenter,
         historyDirectory: "~/Library/Application Support/Robin/History",
         recordingDirectory: "~/Library/Caches/Robin/Recordings"
     )
@@ -66,6 +68,22 @@ enum LocalParakeetTranscriptionMode: String, CaseIterable, Identifiable, Sendabl
     }
 }
 
+enum RecordingOverlayMode: String, CaseIterable, Identifiable, Sendable {
+    case hidden
+    case bottomCenter
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .hidden:
+            "Hidden"
+        case .bottomCenter:
+            "Bottom-Center"
+        }
+    }
+}
+
 final class SettingsManager {
     private enum Keys {
         static let transcriptionBackend = "transcriptionBackend"
@@ -77,6 +95,7 @@ final class SettingsManager {
         static let alwaysCopyTranscription = "alwaysCopyTranscription"
         static let startAtLogin = "startAtLogin"
         static let clickBeforeInserting = "clickBeforeInserting"
+        static let recordingOverlay = "recordingOverlay"
         static let hotkey = "hotkey"
         static let historyDirectory = "historyDirectory"
     }
@@ -119,6 +138,7 @@ final class SettingsManager {
         let configuredDeliveryMode = userDefaults.string(forKey: Keys.deliveryMode) ?? defaults.deliveryMode.rawValue
         let configuredBackend = userDefaults.string(forKey: Keys.transcriptionBackend) ?? defaults.transcriptionBackend.rawValue
         let configuredParakeetMode = userDefaults.string(forKey: Keys.localParakeetMode) ?? defaults.localParakeetMode.rawValue
+        let configuredRecordingOverlay = userDefaults.string(forKey: Keys.recordingOverlay) ?? defaults.recordingOverlay.rawValue
         let settings = AppSettings(
             transcriptionBackend: TranscriptionBackend(rawValue: configuredBackend) ?? defaults.transcriptionBackend,
             localParakeetMode: LocalParakeetTranscriptionMode(rawValue: configuredParakeetMode) ?? defaults.localParakeetMode,
@@ -131,6 +151,7 @@ final class SettingsManager {
             alwaysCopyTranscription: userDefaults.object(forKey: Keys.alwaysCopyTranscription) as? Bool ?? defaults.alwaysCopyTranscription,
             startAtLogin: userDefaults.object(forKey: Keys.startAtLogin) as? Bool ?? defaults.startAtLogin,
             clickBeforeInserting: userDefaults.object(forKey: Keys.clickBeforeInserting) as? Bool ?? defaults.clickBeforeInserting,
+            recordingOverlay: RecordingOverlayMode(rawValue: configuredRecordingOverlay) ?? defaults.recordingOverlay,
             historyDirectory: userDefaults.string(forKey: Keys.historyDirectory) ?? defaults.historyDirectory,
             recordingDirectory: defaults.recordingDirectory
         )
@@ -151,6 +172,7 @@ final class SettingsManager {
         userDefaults.removeObject(forKey: Keys.alwaysCopyTranscription)
         userDefaults.removeObject(forKey: Keys.startAtLogin)
         userDefaults.removeObject(forKey: Keys.clickBeforeInserting)
+        userDefaults.removeObject(forKey: Keys.recordingOverlay)
         userDefaults.removeObject(forKey: Keys.hotkey)
         userDefaults.removeObject(forKey: Keys.historyDirectory)
         try removeLegacyConfigIfNeeded()
@@ -169,6 +191,7 @@ final class SettingsManager {
         userDefaults.set(settings.alwaysCopyTranscription, forKey: Keys.alwaysCopyTranscription)
         userDefaults.set(settings.startAtLogin, forKey: Keys.startAtLogin)
         userDefaults.set(settings.clickBeforeInserting, forKey: Keys.clickBeforeInserting)
+        userDefaults.set(settings.recordingOverlay.rawValue, forKey: Keys.recordingOverlay)
         userDefaults.set(settings.hotkey, forKey: Keys.hotkey)
         userDefaults.set(settings.historyDirectory, forKey: Keys.historyDirectory)
         try fileManager.createDirectory(at: settings.resolvedHistoryDirectory, withIntermediateDirectories: true)
