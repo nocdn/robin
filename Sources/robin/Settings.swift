@@ -9,6 +9,7 @@ struct AppSettings: Sendable {
     var language: String
     var hotkey: String
     var deliveryMode: TranscriptDeliveryMode
+    var alwaysCopyTranscription: Bool
     var historyDirectory: String
     var recordingDirectory: String
 
@@ -29,6 +30,7 @@ struct AppSettings: Sendable {
         language: "en",
         hotkey: HotKeyParser.defaultValue,
         deliveryMode: .insert,
+        alwaysCopyTranscription: false,
         historyDirectory: "~/Library/Application Support/Robin/History",
         recordingDirectory: "~/Library/Caches/Robin/Recordings"
     )
@@ -68,6 +70,7 @@ final class SettingsManager {
         static let model = "model"
         static let language = "language"
         static let deliveryMode = "deliveryMode"
+        static let alwaysCopyTranscription = "alwaysCopyTranscription"
         static let hotkey = "hotkey"
         static let historyDirectory = "historyDirectory"
     }
@@ -119,6 +122,7 @@ final class SettingsManager {
             language: userDefaults.string(forKey: Keys.language) ?? defaults.language,
             hotkey: userDefaults.string(forKey: Keys.hotkey) ?? defaults.hotkey,
             deliveryMode: TranscriptDeliveryMode(rawValue: configuredDeliveryMode.lowercased()) ?? defaults.deliveryMode,
+            alwaysCopyTranscription: userDefaults.object(forKey: Keys.alwaysCopyTranscription) as? Bool ?? defaults.alwaysCopyTranscription,
             historyDirectory: userDefaults.string(forKey: Keys.historyDirectory) ?? defaults.historyDirectory,
             recordingDirectory: defaults.recordingDirectory
         )
@@ -136,6 +140,7 @@ final class SettingsManager {
         userDefaults.removeObject(forKey: Keys.model)
         userDefaults.removeObject(forKey: Keys.language)
         userDefaults.removeObject(forKey: Keys.deliveryMode)
+        userDefaults.removeObject(forKey: Keys.alwaysCopyTranscription)
         userDefaults.removeObject(forKey: Keys.hotkey)
         userDefaults.removeObject(forKey: Keys.historyDirectory)
         try removeLegacyConfigIfNeeded()
@@ -151,6 +156,7 @@ final class SettingsManager {
         userDefaults.set(settings.model, forKey: Keys.model)
         userDefaults.set(settings.language, forKey: Keys.language)
         userDefaults.set(settings.deliveryMode.rawValue, forKey: Keys.deliveryMode)
+        userDefaults.set(settings.alwaysCopyTranscription, forKey: Keys.alwaysCopyTranscription)
         userDefaults.set(settings.hotkey, forKey: Keys.hotkey)
         userDefaults.set(settings.historyDirectory, forKey: Keys.historyDirectory)
         try fileManager.createDirectory(at: settings.resolvedHistoryDirectory, withIntermediateDirectories: true)

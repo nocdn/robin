@@ -1,4 +1,3 @@
-import ApplicationServices
 import AppKit
 import Foundation
 
@@ -27,7 +26,6 @@ final class AppCoordinator {
     private var streamingLiveInsertedText = ""
     private var streamingPreviousPartialText = ""
     private var streamingLiveChunkCount = 0
-    private var textDeliveryTarget: AXUIElement?
 
     private enum WorkflowState: Equatable {
         case idle
@@ -45,9 +43,14 @@ final class AppCoordinator {
             Logger.shared.info("Application support directory ready")
             settings = try settingsManager.loadOrCreate()
             Logger.shared.info("Loaded settings")
-            await notifier.requestAuthorization()
-            try await recorder.requestPermission()
             try configureHotKey()
+            await notifier.requestAuthorization()
+            do {
+                try await recorder.requestPermission()
+            } catch {
+                Logger.shared.error("Microphone permission request failed: \(error.localizedDescription)")
+                notifier.error(error)
+            }
             Logger.shared.info("Robin startup complete")
         } catch {
             Logger.shared.error("Startup failed: \(error.localizedDescription)")
@@ -144,7 +147,6 @@ final class AppCoordinator {
             Logger.shared.info(
                 "Settings reloaded before recording; backend=\(currentSettings.transcriptionBackend.rawValue) parakeetMode=\(currentSettings.localParakeetMode.rawValue) insertMode=\(currentSettings.deliveryMode.rawValue)"
             )
-            textDeliveryTarget = currentSettings.deliveryMode == .insert ? textDelivery.focusedTextElement() : nil
 
             guard currentSettings.transcriptionBackend != .cohere ||
                 !currentSettings.apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -163,7 +165,6 @@ final class AppCoordinator {
         } catch {
             Logger.shared.error("Start recording failed: \(error.localizedDescription)")
             workflowState = .idle
-            textDeliveryTarget = nil
             notifier.error(error)
         }
     }
@@ -222,7 +223,6 @@ final class AppCoordinator {
                 notifier.error(error)
             }
 
-            textDeliveryTarget = nil
             workflowState = .idle
             Logger.shared.info("Transcription workflow finished")
         }
@@ -283,7 +283,6 @@ final class AppCoordinator {
             Logger.shared.error("Streaming release ignored because settings were missing")
             liveAudioCapture.stop()
             workflowState = .idle
-            textDeliveryTarget = nil
             return
         }
 
@@ -322,7 +321,6 @@ final class AppCoordinator {
             streamingLiveInsertedText = ""
             streamingPreviousPartialText = ""
             streamingLiveChunkCount = 0
-            textDeliveryTarget = nil
             Logger.shared.info("STREAM_WORKFLOW_RELEASE_END elapsedMs=\(elapsedMs)")
         }
     }
@@ -349,7 +347,7 @@ final class AppCoordinator {
         guard !delta.isEmpty else { return }
 
         do {
-            try textDelivery.insertLiveChunk(delta, target: textDeliveryTarget)
+            try textDelivery.insertLiveChunk(delta)
             streamingLiveInsertedText = stablePrefix
             streamingLiveChunkCount += 1
             Logger.shared.info(
@@ -409,7 +407,7 @@ final class AppCoordinator {
         }
 
         do {
-            try textDelivery.insertLiveChunk(delta, target: textDeliveryTarget)
+            try textDelivery.insertLiveChunk(delta)
             streamingLiveInsertedText = trimmedFinalText
             streamingLiveChunkCount += 1
             Logger.shared.info(
@@ -439,10 +437,17 @@ final class AppCoordinator {
         Logger.shared.info("Transcript saved: \(transcriptURL.path)")
         if deliverFinalTranscript {
             Logger.shared.info("TRANSCRIPT_DELIVERY_BEGIN mode=\(currentSettings.deliveryMode.rawValue)")
-            try textDelivery.deliver(trimmedText, mode: currentSettings.deliveryMode, target: textDeliveryTarget)
+            try textDelivery.deliver(
+                trimmedText,
+                mode: currentSettings.deliveryMode,
+                alwaysCopyTranscription: currentSettings.alwaysCopyTranscription
+            )
             Logger.shared.info("TRANSCRIPT_DELIVERY_END mode=\(currentSettings.deliveryMode.rawValue)")
         } else {
             Logger.shared.info("TRANSCRIPT_DELIVERY_SKIPPED reason=alreadyInsertedLive")
+            if currentSettings.deliveryMode == .insert, currentSettings.alwaysCopyTranscription {
+                textDelivery.copyTranscriptionToClipboard(trimmedText)
+            }
         }
         print("Saved transcript: \(transcriptURL.path)")
     }

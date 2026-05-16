@@ -115,6 +115,7 @@ private struct SettingsView: View {
     @State private var historyDirectory: String
     @State private var savedHistoryDirectory: String
     @State private var deliveryMode: TranscriptDeliveryMode
+    @State private var alwaysCopyTranscription: Bool
     @State private var language: String
     @FocusState private var focusedField: FocusedField?
 
@@ -144,6 +145,7 @@ private struct SettingsView: View {
         _historyDirectory = State(initialValue: settings.historyDirectory)
         _savedHistoryDirectory = State(initialValue: settings.historyDirectory)
         _deliveryMode = State(initialValue: settings.deliveryMode)
+        _alwaysCopyTranscription = State(initialValue: settings.alwaysCopyTranscription)
         _language = State(initialValue: settings.language)
     }
 
@@ -302,6 +304,22 @@ private struct SettingsView: View {
                 .labelsHidden()
                 .onChange(of: deliveryMode) { _, _ in
                     saveDeliveryMode()
+                    onLayoutChange()
+                }
+
+                if deliveryMode == .insert {
+                    HStack(spacing: 8) {
+                        Toggle("", isOn: $alwaysCopyTranscription)
+                            .toggleStyle(.checkbox)
+                            .controlSize(.small)
+                            .labelsHidden()
+
+                        Text("Always copy transcription")
+                    }
+                    .padding(.top, 6)
+                    .onChange(of: alwaysCopyTranscription) { _, _ in
+                        saveAlwaysCopyTranscription()
+                    }
                 }
             }
 
@@ -587,6 +605,16 @@ private struct SettingsView: View {
         do {
             _ = try settingsManager.update { settings in
                 settings.deliveryMode = deliveryMode
+            }
+        } catch {
+            presentSaveError(error)
+        }
+    }
+
+    private func saveAlwaysCopyTranscription() {
+        do {
+            _ = try settingsManager.update { settings in
+                settings.alwaysCopyTranscription = alwaysCopyTranscription
             }
         } catch {
             presentSaveError(error)

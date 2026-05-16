@@ -1,14 +1,26 @@
-import ApplicationServices
-import Foundation
+@preconcurrency import ApplicationServices
+@preconcurrency import Foundation
 
-final class GlobalHotKeyMonitor {
+final class GlobalHotKeyMonitor: @unchecked Sendable {
     var onPressed: (() -> Void)?
     var onReleased: (() -> Void)?
 
+    private static let relevantModifierMask: CGEventFlags = [
+        .maskControl,
+        .maskCommand,
+        .maskAlternate,
+        .maskShift,
+        .maskSecondaryFn
+    ]
+
     private let hotKey: HotKey
+    private let stateLock = NSLock()
     private var eventTap: CFMachPort?
     private var runLoopSource: CFRunLoopSource?
+    private var eventRunLoop: CFRunLoop?
+    private var eventThread: Thread?
     private var isPressed = false
+    private var suppressMainKeyUntilKeyUp = false
 
     init(hotKey: HotKey) {
         self.hotKey = hotKey
@@ -19,6 +31,8 @@ final class GlobalHotKeyMonitor {
     }
 
     func start() throws {
+        stop()
+
         let canListenBeforeRequest = CGPreflightListenEventAccess()
         Logger.shared.info("Input Monitoring listen preflight before request: \(canListenBeforeRequest)")
         if !canListenBeforeRequest {
@@ -34,114 +48,295 @@ final class GlobalHotKeyMonitor {
         let trusted = AXIsProcessTrustedWithOptions(options)
         Logger.shared.info("AX trusted status: \(trusted)")
 
-        let mask = (1 << CGEventType.keyDown.rawValue) |
+        let eventMask = (1 << CGEventType.keyDown.rawValue) |
             (1 << CGEventType.keyUp.rawValue) |
             (1 << CGEventType.flagsChanged.rawValue)
-        Logger.shared.info("Creating CGEvent tap with mask=\(mask)")
+        Logger.shared.info("Creating CGEvent tap with mask=\(eventMask)")
 
-        guard let tap = CGEvent.tapCreate(
-            tap: .cgSessionEventTap,
-            place: .headInsertEventTap,
-            options: .defaultTap,
-            eventsOfInterest: CGEventMask(mask),
-            callback: eventCallback,
-            userInfo: Unmanaged.passUnretained(self).toOpaque()
-        ) else {
+        let tapConfigurations: [(location: CGEventTapLocation, name: String)] = [
+            (.cghidEventTap, "cghidEventTap"),
+            (.cgSessionEventTap, "cgSessionEventTap")
+        ]
+
+        var selectedTap: CFMachPort?
+        var selectedLocationName = ""
+        for configuration in tapConfigurations {
+            if let tap = CGEvent.tapCreate(
+                tap: configuration.location,
+                place: .headInsertEventTap,
+                options: .defaultTap,
+                eventsOfInterest: CGEventMask(eventMask),
+                callback: eventCallback,
+                userInfo: Unmanaged.passUnretained(self).toOpaque()
+            ) {
+                selectedTap = tap
+                selectedLocationName = configuration.name
+                break
+            }
+            Logger.shared.error("CGEvent tap creation failed for \(configuration.name)")
+        }
+
+        guard let selectedTap else {
             Logger.shared.error("CGEvent tap creation returned nil")
             throw RobinError.hotKeyPermissionDenied
         }
 
-        let source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0)
-        CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)
-        CGEvent.tapEnable(tap: tap, enable: true)
+        let source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, selectedTap, 0)
+        let tapLocationName = selectedLocationName
+        let ready = DispatchSemaphore(value: 0)
+        let thread = Thread { [weak self] in
+            guard let self else {
+                ready.signal()
+                return
+            }
 
-        eventTap = tap
+            let runLoop = CFRunLoopGetCurrent()
+            self.stateLock.lock()
+            self.eventRunLoop = runLoop
+            self.stateLock.unlock()
+
+            CFRunLoopAddSource(runLoop, source, .commonModes)
+            CGEvent.tapEnable(tap: selectedTap, enable: true)
+            Logger.shared.info("CGEvent tap enabled on dedicated thread location=\(tapLocationName)")
+            ready.signal()
+            CFRunLoopRun()
+            CGEvent.tapEnable(tap: selectedTap, enable: false)
+            CFRunLoopRemoveSource(runLoop, source, .commonModes)
+
+            self.stateLock.lock()
+            if self.eventRunLoop === runLoop {
+                self.eventRunLoop = nil
+            }
+            self.stateLock.unlock()
+            Logger.shared.info("CGEvent tap thread stopped")
+        }
+        thread.name = "dev.local.robin.hotkey-monitor"
+
+        eventTap = selectedTap
         runLoopSource = source
-        Logger.shared.info("CGEvent tap enabled")
+        eventThread = thread
+        thread.start()
+        ready.wait()
+        Logger.shared.info("Hotkey monitor event thread started")
     }
 
     func stop() {
         Logger.shared.info("Stopping hotkey monitor")
-        if let runLoopSource {
-            CFRunLoopRemoveSource(CFRunLoopGetMain(), runLoopSource, .commonModes)
+
+        let shouldRelease = resetPressedState()
+        if shouldRelease {
+            dispatchReleased(reason: "monitorStopped")
         }
-        if let eventTap {
-            CGEvent.tapEnable(tap: eventTap, enable: false)
+
+        stateLock.lock()
+        let runLoop = eventRunLoop
+        let thread = eventThread
+        let tap = eventTap
+        stateLock.unlock()
+
+        if let runLoop {
+            CFRunLoopStop(runLoop)
+        } else if let tap {
+            CGEvent.tapEnable(tap: tap, enable: false)
         }
+
+        if let thread {
+            for _ in 0..<50 {
+                if thread.isFinished {
+                    break
+                }
+                usleep(10_000)
+            }
+        }
+
+        stateLock.lock()
         runLoopSource = nil
         eventTap = nil
+        eventThread = nil
+        eventRunLoop = nil
+        stateLock.unlock()
     }
 
     fileprivate func handle(type: CGEventType, event: CGEvent) -> Bool {
         if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
             Logger.shared.error("CGEvent tap disabled with type=\(type.rawValue); re-enabling")
-            if let eventTap {
-                CGEvent.tapEnable(tap: eventTap, enable: true)
+            let shouldRelease = resetPressedState()
+            if shouldRelease {
+                dispatchReleased(reason: "tapDisabled")
+            }
+
+            stateLock.lock()
+            let tap = eventTap
+            stateLock.unlock()
+            if let tap {
+                CGEvent.tapEnable(tap: tap, enable: true)
             }
             return false
         }
 
         let keyCode = CGKeyCode(event.getIntegerValueField(.keyboardEventKeycode))
         let flags = event.flags
-        guard keyCode == hotKey.keyCode else { return false }
-        Logger.shared.info("Observed configured keyCode=\(keyCode) eventType=\(type.rawValue) flags=\(flags.rawValue)")
 
         switch type {
         case .flagsChanged:
-            guard hotKey.isFunctionKey else { return false }
-            let functionPressed = flags.contains(.maskSecondaryFn)
-            if functionPressed {
-                guard !isPressed else {
-                    Logger.shared.info("Ignoring flagsChanged because hotkey is already pressed")
-                    return true
-                }
-                guard flags.containsAll(hotKey.modifiers) else {
-                    Logger.shared.info("Ignoring flagsChanged because modifiers do not match required=\(hotKey.modifiers.rawValue) actual=\(flags.rawValue)")
-                    return false
-                }
-                isPressed = true
-                Logger.shared.info("Hotkey match: pressed")
-                onPressed?()
-                return true
-            } else {
-                guard isPressed else {
-                    Logger.shared.info("Ignoring flagsChanged because hotkey was not marked pressed")
-                    return false
-                }
-                isPressed = false
-                Logger.shared.info("Hotkey match: released")
-                onReleased?()
-                return true
-            }
+            return handleFlagsChanged(keyCode: keyCode, flags: flags)
         case .keyDown:
-            let autoRepeat = event.getIntegerValueField(.keyboardEventAutorepeat) != 0
-            guard isPressed || flags.containsAll(hotKey.modifiers) else {
-                Logger.shared.info("Ignoring keyDown because modifiers do not match required=\(hotKey.modifiers.rawValue) actual=\(flags.rawValue)")
-                return false
-            }
-            guard !autoRepeat else {
-                Logger.shared.info("Ignoring autorepeat keyDown")
-                return true
-            }
-            guard !isPressed else {
-                Logger.shared.info("Ignoring keyDown because hotkey is already pressed")
-                return true
-            }
-            isPressed = true
-            Logger.shared.info("Hotkey match: pressed")
-            onPressed?()
-            return true
+            return handleKeyDown(keyCode: keyCode, flags: flags, event: event)
         case .keyUp:
-            guard isPressed else {
-                Logger.shared.info("Ignoring keyUp because hotkey was not marked pressed")
-                return false
-            }
-            isPressed = false
-            Logger.shared.info("Hotkey match: released")
-            onReleased?()
-            return true
+            return handleKeyUp(keyCode: keyCode)
         default:
             return false
+        }
+    }
+
+    private func handleKeyDown(keyCode: CGKeyCode, flags: CGEventFlags, event: CGEvent) -> Bool {
+        guard keyCode == hotKey.keyCode else { return false }
+
+        let autoRepeat = event.getIntegerValueField(.keyboardEventAutorepeat) != 0
+
+        stateLock.lock()
+        let shouldSuppress = isPressed || suppressMainKeyUntilKeyUp
+        stateLock.unlock()
+        if shouldSuppress {
+            if autoRepeat {
+                Logger.shared.info("Suppressing autorepeat for active hotkey")
+            }
+            return true
+        }
+
+        guard modifiersExactlyMatch(flags) else {
+            Logger.shared.info(
+                "Ignoring keyDown because modifiers do not exactly match required=\(requiredModifiers.rawValue) actual=\(relevantModifiers(in: flags).rawValue)"
+            )
+            return false
+        }
+
+        guard !autoRepeat else {
+            Logger.shared.info("Suppressing autorepeat keyDown for matching hotkey")
+            return true
+        }
+
+        stateLock.lock()
+        isPressed = true
+        suppressMainKeyUntilKeyUp = true
+        stateLock.unlock()
+
+        Logger.shared.info("Hotkey match: pressed")
+        dispatchPressed()
+        return true
+    }
+
+    private func handleKeyUp(keyCode: CGKeyCode) -> Bool {
+        guard keyCode == hotKey.keyCode else { return false }
+
+        stateLock.lock()
+        let wasPressed = isPressed
+        let shouldSuppress = isPressed || suppressMainKeyUntilKeyUp
+        isPressed = false
+        suppressMainKeyUntilKeyUp = false
+        stateLock.unlock()
+
+        guard shouldSuppress else {
+            Logger.shared.info("Ignoring keyUp because hotkey was not active")
+            return false
+        }
+
+        if wasPressed {
+            Logger.shared.info("Hotkey match: released")
+            dispatchReleased(reason: "keyUp")
+        } else {
+            Logger.shared.info("Suppressing trailing keyUp after hotkey release")
+        }
+        return true
+    }
+
+    private func handleFlagsChanged(keyCode: CGKeyCode, flags: CGEventFlags) -> Bool {
+        if hotKey.isFunctionKey, keyCode == hotKey.keyCode {
+            return handleFunctionKeyFlagsChanged(flags: flags)
+        }
+
+        stateLock.lock()
+        let wasPressed = isPressed
+        let shouldRelease = wasPressed && !modifiersExactlyMatch(flags)
+        if shouldRelease {
+            isPressed = false
+        }
+        stateLock.unlock()
+
+        if shouldRelease {
+            Logger.shared.info("Hotkey match: released after modifier break")
+            dispatchReleased(reason: "modifierBreak")
+        }
+        return false
+    }
+
+    private func handleFunctionKeyFlagsChanged(flags: CGEventFlags) -> Bool {
+        let activeModifiers = relevantModifiers(in: flags)
+        let requiredWithFunctionKey = requiredModifiers.union(.maskSecondaryFn)
+        let functionCombinationPressed = activeModifiers == requiredWithFunctionKey
+
+        stateLock.lock()
+        if functionCombinationPressed {
+            guard !isPressed else {
+                stateLock.unlock()
+                Logger.shared.info("Suppressing repeated fn flagsChanged while hotkey is active")
+                return true
+            }
+
+            isPressed = true
+            suppressMainKeyUntilKeyUp = false
+            stateLock.unlock()
+
+            Logger.shared.info("Function hotkey match: pressed")
+            dispatchPressed()
+            return true
+        }
+
+        guard isPressed else {
+            stateLock.unlock()
+            return false
+        }
+
+        isPressed = false
+        suppressMainKeyUntilKeyUp = false
+        stateLock.unlock()
+
+        Logger.shared.info("Function hotkey match: released")
+        dispatchReleased(reason: "functionFlagsChanged")
+        return true
+    }
+
+    private var requiredModifiers: CGEventFlags {
+        relevantModifiers(in: hotKey.modifiers)
+    }
+
+    private func modifiersExactlyMatch(_ flags: CGEventFlags) -> Bool {
+        relevantModifiers(in: flags) == requiredModifiers
+    }
+
+    private func relevantModifiers(in flags: CGEventFlags) -> CGEventFlags {
+        flags.intersection(Self.relevantModifierMask)
+    }
+
+    private func resetPressedState() -> Bool {
+        stateLock.lock()
+        let shouldRelease = isPressed
+        isPressed = false
+        suppressMainKeyUntilKeyUp = false
+        stateLock.unlock()
+        return shouldRelease
+    }
+
+    private func dispatchPressed() {
+        DispatchQueue.main.async { [weak self] in
+            self?.onPressed?()
+        }
+    }
+
+    private func dispatchReleased(reason: String) {
+        Logger.shared.info("Dispatching hotkey release reason=\(reason)")
+        DispatchQueue.main.async { [weak self] in
+            self?.onReleased?()
         }
     }
 }
@@ -158,15 +353,4 @@ private let eventCallback: CGEventTapCallBack = { _, type, event, userInfo in
         return nil
     }
     return Unmanaged.passUnretained(event)
-}
-
-private extension CGEventFlags {
-    func containsAll(_ required: CGEventFlags) -> Bool {
-        if required.contains(.maskControl), !contains(.maskControl) { return false }
-        if required.contains(.maskCommand), !contains(.maskCommand) { return false }
-        if required.contains(.maskAlternate), !contains(.maskAlternate) { return false }
-        if required.contains(.maskShift), !contains(.maskShift) { return false }
-        if required.contains(.maskSecondaryFn), !contains(.maskSecondaryFn) { return false }
-        return true
-    }
 }
